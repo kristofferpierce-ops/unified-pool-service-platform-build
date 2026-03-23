@@ -153,6 +153,6 @@ git switch -c platform-integration-block1a-quote-workflow-foundation
 cd C:\Users\krist\Desktop\unified_pool_service_platform_build\unified_pool_service_platform_build
 
 python -m pytest
-python -m streamlit run ui\app.py
+python -m streamlit run ui\Dashboard.py
 python -m uvicorn app.api.main:app --reload
 ```
