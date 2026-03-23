@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlmodel import Session, select
@@ -15,6 +15,23 @@ from app.models.connector_tables import (
     SourceSystem,
 )
 from app.utils.serialization import dumps
+
+
+def normalize_occurrence_timestamp(value: str | None) -> datetime:
+    if not value:
+        return datetime.utcnow()
+    parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    if parsed.tzinfo is not None:
+        return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
+
+
+def normalize_database_timestamp(value: datetime | None) -> datetime:
+    if value is None:
+        return datetime.utcnow()
+    if value.tzinfo is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
 
 
 def ensure_source_system(session: Session, slug: str, display_name: str, category: str = 'connector') -> SourceSystem:
@@ -77,7 +94,7 @@ def record_normalized_payload(session: Session, raw: RawSourceRecord, source_slu
 def materialize_ringcentral_event(session: Session, normalized: NormalizedSourceRecord, normalized_payload: dict[str, Any]) -> dict[str, Any]:
     event_kind = normalized_payload['event_kind']
     result: dict[str, Any] = {'event_kind': event_kind, 'normalized_record_id': normalized.id}
-    occurred_at = datetime.fromisoformat(normalized_payload['occurred_at']) if normalized_payload.get('occurred_at') else datetime.utcnow()
+    occurred_at = normalize_occurrence_timestamp(normalized_payload.get('occurred_at'))
     if event_kind in {'call', 'voicemail'}:
         event = CommunicationEvent(
             normalized_record_id=normalized.id,
@@ -147,7 +164,7 @@ def materialize_ringcentral_event(session: Session, normalized: NormalizedSource
             session.commit()
             session.refresh(thread)
         else:
-            thread.latest_message_at = max(thread.latest_message_at, occurred_at)
+            thread.latest_message_at = max(normalize_database_timestamp(thread.latest_message_at), occurred_at)
             if normalized_payload.get('body'):
                 existing = thread.transcript or ''
                 thread.transcript = (existing + ('\n' if existing else '') + normalized_payload['body']).strip()

@@ -12,6 +12,7 @@ from app.api.routes.connectors import router as connectors_router
 from app.api.routes.estimates import router as estimates_router
 from app.api.routes.front_desk import router as front_desk_router
 from app.api.routes.health import router as health_router
+from app.api.routes.quote_workflow import router as quote_workflow_router
 from app.api.routes.system_settings import router as system_settings_router
 from app.core.config import APP_NAME, STATIC_DIR
 from app.core.database import create_db_and_tables, get_session
@@ -24,6 +25,7 @@ app.include_router(system_settings_router)
 app.include_router(estimates_router)
 app.include_router(connectors_router)
 app.include_router(front_desk_router)
+app.include_router(quote_workflow_router)
 
 # Legacy platform routes kept active
 app.include_router(expenses.router)

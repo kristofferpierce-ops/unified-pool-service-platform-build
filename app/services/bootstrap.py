@@ -4,6 +4,7 @@ from sqlmodel import Session, select
 
 from app.models.connector_tables import SourceSystem
 from app.models.tables import BaselineModelVersion, ChemicalProduct, ClimateProfile, ExpenseItem, WaterProfile
+from app.services.quote_workflow import ensure_quote_workflow_settings
 from app.services.system_settings import set_setting
 from app.services.tools import seed_tools
 from app.utils.serialization import dumps
@@ -146,4 +147,5 @@ def seed_defaults(session: Session) -> None:
 
     session.commit()
     set_setting(session, 'labor_settings', DEFAULT_LABOR_SETTINGS, 'Default labor settings promoted from legacy estimator and intended to become admin-managed.')
+    ensure_quote_workflow_settings(session)
     seed_tools(session)
