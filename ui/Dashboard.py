@@ -41,17 +41,17 @@ m6.metric('Follow Ups Due', quote_dashboard['totals']['follow_ups_due'], help='C
 st.subheader('Operations launchpad')
 launch_a, launch_b, launch_c, launch_d = st.columns(4)
 with launch_a:
-    st.page_link('ui/pages/11_Quote_Workflow.py', label='Quote Workflow', icon='🧭', help='Open the new quote workflow board to create, review, and move quote cases.')
-    st.page_link('ui/pages/7_Invoice_Review.py', label='Invoice Review', icon='🧾', help='Open the invoice review queue for staged invoice parsing and approval.')
+    st.page_link('pages/11_Quote_Workflow.py', label='Quote Workflow', icon='🧭', help='Open the new quote workflow board to create, review, and move quote cases.')
+    st.page_link('pages/7_Invoice_Review.py', label='Invoice Review', icon='🧾', help='Open the invoice review queue for staged invoice parsing and approval.')
 with launch_b:
-    st.page_link('ui/pages/5_Commercial_Estimator.py', label='Commercial Estimator', icon='🏢', help='Open the commercial estimator for scenario building and pricing.')
-    st.page_link('ui/pages/4_Residential_Estimator.py', label='Residential Estimator', icon='🏠', help='Open the residential estimator for service pricing workflows.')
+    st.page_link('pages/5_Commercial_Estimator.py', label='Commercial Estimator', icon='🏢', help='Open the commercial estimator for scenario building and pricing.')
+    st.page_link('pages/4_Residential_Estimator.py', label='Residential Estimator', icon='🏠', help='Open the residential estimator for service pricing workflows.')
 with launch_c:
-    st.page_link('ui/pages/6_Commercial_Deliveries.py', label='Commercial Deliveries', icon='🚚', help='Open monthly delivery reporting and property level billing review.')
-    st.page_link('ui/pages/9_Tools.py', label='Tools', icon='🛠️', help='Open operational tools such as property verification and future equipment quote modules.')
+    st.page_link('pages/6_Commercial_Deliveries.py', label='Commercial Deliveries', icon='🚚', help='Open monthly delivery reporting and property level billing review.')
+    st.page_link('pages/9_Tools.py', label='Tools', icon='🛠️', help='Open operational tools such as property verification and future equipment quote modules.')
 with launch_d:
-    st.page_link('ui/pages/8_Compare_&_Train.py', label='Compare + Train', icon='📊', help='Open compare and train workflows for pricing calibration and review.')
-    st.page_link('ui/pages/10_Estimate_Library.py', label='Estimate Library', icon='📚', help='Open saved estimate runs and exported reporting views.')
+    st.page_link('pages/8_Compare_&_Train.py', label='Compare + Train', icon='📊', help='Open compare and train workflows for pricing calibration and review.')
+    st.page_link('pages/10_Estimate_Library.py', label='Estimate Library', icon='📚', help='Open saved estimate runs and exported reporting views.')
 
 st.subheader('Quote workflow dashboard')
 st.caption('These cards mirror the current CRM bucket language so staff can recognize the same workflow while the platform becomes the orchestration layer.')
