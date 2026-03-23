@@ -1,0 +1,17 @@
+Archive listing only. Direct extraction was unavailable in this environment.
+Likely contents:
+static/app.js
+static/index.html
+static/keyspool-logo.png
+static/styles.css
+.env
+.env.example
+4235.py
+bridge.db
+main.py
+mainold.py
+ngrok_setup_helper.ps1
+ngrok_setup_helper.txt
+README.md
+requirements.txt
+static/

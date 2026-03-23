@@ -1,0 +1,9 @@
+DirectoryIndex index.html
+
+RewriteEngine On
+
+RewriteCond %{THE_REQUEST} \s/+(.*/)?index\.html[\s?] [NC]
+RewriteRule ^ %1 [R=301,L]
+
+RewriteRule ^our-services/?$ /key-west-boat-charters/ [R=301,L]
+RewriteRule ^dry-tortugas-boat-charter/?$ /dry-tortugas-charter-key-west/ [R=301,L]

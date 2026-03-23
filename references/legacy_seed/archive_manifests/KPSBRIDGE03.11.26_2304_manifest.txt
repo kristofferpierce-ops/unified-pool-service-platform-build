@@ -1,0 +1,5 @@
+Archive appears truncated or empty.
+Entries visible:
+- KPSBRIDGE03.11.26_2304
+- KPSBRIDGE03.11.26_2304/static
+No usable files extracted.

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Unified Pool Operations Core</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; background: #f6f8fb; color: #0f172a; }
+    h1 { margin-bottom: 8px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .card { background: white; border-radius: 14px; padding: 16px; box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08); }
+    button { padding: 10px 14px; border: 0; border-radius: 10px; cursor: pointer; }
+    pre { white-space: pre-wrap; font-size: 12px; max-height: 480px; overflow: auto; }
+    .muted { color: #475569; }
+  </style>
+</head>
+<body>
+  <h1>Unified Pool Service Operations Core</h1>
+  <p class="muted">Connector-first foundation built from the uploaded platform and bridge files.</p>
+  <p>
+    <button onclick="loadQueue()">Refresh front desk queue</button>
+  </p>
+  <div class="grid">
+    <div class="card">
+      <h2>Communications</h2>
+      <pre id="communications">Loading...</pre>
+    </div>
+    <div class="card">
+      <h2>SMS Threads</h2>
+      <pre id="threads">Loading...</pre>
+    </div>
+  </div>
+  <script>
+    async function loadQueue() {
+      const res = await fetch('/front-desk/queue');
+      const data = await res.json();
+      document.getElementById('communications').textContent = JSON.stringify(data.communications, null, 2);
+      document.getElementById('threads').textContent = JSON.stringify(data.sms_threads, null, 2);
+    }
+    loadQueue();
+  </script>
+</body>
+</html>

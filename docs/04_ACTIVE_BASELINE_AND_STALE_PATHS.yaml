@@ -1,0 +1,41 @@
+active_baseline:
+  repo:
+    - pool_service_platform_v3
+  direct_bridge_files:
+    - main.py
+    - app.js
+    - index.html
+    - styles.css
+    - README.md
+    - requirements.txt
+    - .env.example
+  source_model_artifacts:
+    - AI-Friendly Rollout Plan for a Connector-First Unified Pool Service Operations Core.pdf
+    - Connector-First Unified Operating Core for a Pool Service Business.pdf
+    - key_west_pool_consumption_coefficients_simple_updated_v2(1).xlsx
+preserve_but_refactor:
+  - pool_service_platform_v3/app/models/tables.py
+  - pool_service_platform_v3/app/services/estimator.py
+  - pool_service_platform_v3/app/services/invoice_ingestion.py
+  - pool_service_platform_v3/app/services/baseline.py
+  - pool_service_platform_v3/app/services/calibration.py
+  - pool_service_platform_v3/app/services/commercial.py
+  - bridge/main.py
+mine_only:
+  - pool_service_pricing_v1/app/models/tables.py
+  - pool_service_pricing_v1/app/services/estimator.py
+  - pool_service_pricing_v1/app/services/repositories.py
+  - pool_service_pricing_v1/app/services/bootstrap.py
+  - pool_service_pricing_v1/app/services/seeds.py
+  - pool_volume_tool_live_proto/pool_volume_tool/service.py
+  - pool_volume_tool_live_proto/pool_volume_tool/live_sources.py
+  - pool_volume_tool_live_proto/pool_volume_tool/schemas.py
+stale_or_reference_only:
+  - RPC Root entire site
+  - KPSBRIDGE03.11.26_2304.7z truncated archive
+  - oldstyles.css
+  - olderstyles.css
+  - app - Copy.js
+exclude_for_safety:
+  - .env
+  - unredacted bridge.db data

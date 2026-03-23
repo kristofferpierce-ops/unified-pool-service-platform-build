@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Keys Pool Service Data Hub</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header>
+    <div class="brand-wrap">
+      <img src="/static/keyspool-logo.png" alt="Keys Pool Service logo" class="brand-logo">
+      <div class="brand-copy">
+        <h1>Keys Pool Service Data Hub</h1>
+        <p class="brand-subtitle">Powered by Kristoffer™</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <div class="inline-help-wrap">
+        <button id="runEodBtn" class="secondary">Run end-of-day text batch now</button>
+        <button type="button" class="help-chip" title="Creates or refreshes end-of-day text summaries for open text threads. Use this when you want today's messages grouped and summarized now." data-help="Creates or refreshes end-of-day text summaries for open text threads. Use this when you want today's messages grouped and summarized now.">?</button>
+      </div>
+      <div class="inline-help-wrap">
+        <button id="refreshBtn">Refresh</button>
+        <button type="button" class="help-chip" title="Refreshes the queue right now so you can see any new calls or text summaries without waiting for auto-refresh." data-help="Refreshes the queue right now so you can see any new calls or text summaries without waiting for auto-refresh.">?</button>
+      </div>
+    </div>
+  </header>
+
+
+
+  <div id="incomingHud" class="hud-overlay hidden">
+    <div class="hud-card">
+      <div class="hud-top">
+        <div>
+          <div class="hud-eyebrow">Incoming call context</div>
+          <h2 id="hudCallerTitle">Unknown caller</h2>
+          <div id="hudMeta" class="meta"></div>
+        </div>
+        <div class="hud-actions">
+          <span id="hudStatusBadge" class="certainty-badge suggested">Ringing</span>
+          <button id="hudDismissBtn" class="secondary">Dismiss</button>
+        </div>
+      </div>
+      <div class="hud-grid">
+        <div class="hud-section">
+          <h3>Likely CRM match</h3>
+          <div id="hudIdentityBox" class="identity-box">
+            <div class="identity-line">
+              <span id="hudIdentityPhone" class="identity-phone"></span>
+              <span class="identity-sep">—</span>
+              <strong id="hudIdentityName" class="identity-name"></strong>
+              <span id="hudIdentityBadge" class="certainty-badge unknown">No match</span>
+            </div>
+            <div id="hudIdentitySub" class="small"></div>
+            <div id="hudIdentityNote" class="small"></div>
+          </div>
+          <div id="hudOpenTaskHint" class="urgency-badge hidden">Open follow-up items on this profile</div>
+        </div>
+        <div class="hud-section">
+          <h3>Last 5 CRM entries</h3>
+          <div id="hudHistoryList" class="hud-history-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <main class="layout">
+    <section class="panel queue-panel">
+      <div class="tab-row">
+        <button id="tabCalls" class="tab active">Calls + voicemail</button>
+        <button id="tabTexts" class="tab secondary">Text summaries</button>
+      </div>
+      <div class="view-row">
+        <button id="viewActiveBtn" class="subtab active">Active calls</button>
+        <button id="viewProcessedBtn" class="subtab secondary">Processed history</button>
+      </div>
+      <div id="queueTitle" class="queue-title">Pending calls</div>
+      <div id="queue" class="queue"></div>
+    </section>
+
+    <section class="panel detail-panel">
+      <div id="emptyState" class="empty">Select an item from the left.</div>
+
+      <div id="callDetail" class="hidden">
+        <div class="detail-top">
+          <div>
+            <h2 id="callTitle">Call</h2>
+            <div class="meta" id="callMeta"></div>
+            <div id="callIdentityBox" class="identity-box hidden">
+              <div class="identity-line">
+                <span id="callIdentityPhone" class="identity-phone"></span>
+                <span class="identity-sep">—</span>
+                <strong id="callIdentityName" class="identity-name"></strong>
+                <span id="callIdentityBadge" class="certainty-badge unknown">No match</span>
+              </div>
+              <div id="callIdentitySub" class="small"></div>
+              <div id="callIdentityNote" class="small"></div>
+            </div>
+          </div>
+          <div class="detail-actions detail-actions-stack">
+            <span id="callStatusBadge" class="badge"></span>
+            <div class="inline-help-wrap"><button id="callCreateTaskBtn" class="secondary">Create task</button><button type="button" class="help-chip" title="Creates a follow-up task in Less Annoying CRM for the current or selected contact using this conversation as context." data-help="Creates a follow-up task in Less Annoying CRM for the current or selected contact using this conversation as context.">?</button></div>
+            <div class="inline-help-wrap"><button id="callTrashBtn" class="secondary danger-btn">Trash / dismiss</button><button type="button" class="help-chip" title="Hides this call from the queue without saving it to CRM. Use this for spam, robocalls, or promotional calls that should not be kept in the working queue." data-help="Hides this call from the queue without saving it to CRM. Use this for spam, robocalls, or promotional calls that should not be kept in the working queue.">?</button></div>
+          </div>
+        </div>
+        <div class="cards">
+          <div class="card">
+          <h3 id="callSummaryHeading">Summary</h3>
+          <div id="callSummaryText"></div>
+        </div>
+        <div class="card">
+          <h3 id="callNextStepsHeading">Next steps</h3>
+          <div id="callNextStepsText"></div>
+        </div>
+        </div>
+        <div class="cards">
+          <div class="card">
+          <h3 id="callTranscriptHeading">Transcript</h3>
+          <div id="callTranscriptText"></div>
+        </div>
+        <div class="card"><h3>Extracted clues</h3><ul id="callCluesList"></ul></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>Most probable LACRM matches</h3><div class="inline-help-wrap"><button id="reloadCallCandidatesBtn" class="secondary">Reload suggestions</button><button type="button" class="help-chip" title="Re-runs the CRM matching logic for this item. Use this after a new clue appears or after you change a routing rule." data-help="Re-runs the CRM matching logic for this item. Use this after a new clue appears or after you change a routing rule.">?</button></div></div>
+          <div id="callCandidateList"></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>Manual search</h3><button type="button" class="help-chip" title="Search Less Annoying CRM manually by owner name, property address, condo name, unit, or company." data-help="Search Less Annoying CRM manually by owner name, property address, condo name, unit, or company.">?</button></div>
+          <div class="search-row">
+            <input id="callSearchInput" type="text" placeholder="Search by address, owner, condo name, unit, or company">
+            <button id="callSearchBtn">Search LACRM</button>
+          </div>
+          <div id="callSearchResults"></div>
+        </div>
+      </div>
+
+      <div id="smsDetail" class="hidden">
+        <div class="detail-top">
+          <div>
+            <h2 id="smsTitle">Text batch</h2>
+            <div class="meta" id="smsMeta"></div>
+            <div id="smsIdentityBox" class="identity-box hidden">
+              <div class="identity-line">
+                <span id="smsIdentityPhone" class="identity-phone"></span>
+                <span class="identity-sep">—</span>
+                <strong id="smsIdentityName" class="identity-name"></strong>
+                <span id="smsIdentityBadge" class="certainty-badge unknown">No match</span>
+              </div>
+              <div id="smsIdentitySub" class="small"></div>
+              <div id="smsIdentityNote" class="small"></div>
+            </div>
+          </div>
+          <div class="detail-actions detail-actions-stack">
+            <span id="smsStatusBadge" class="badge"></span>
+            <div class="inline-help-wrap"><button id="smsCreateTaskBtn" class="secondary">Create task</button><button type="button" class="help-chip" title="Creates a follow-up task in Less Annoying CRM for the current or selected contact using this text conversation as context." data-help="Creates a follow-up task in Less Annoying CRM for the current or selected contact using this text conversation as context.">?</button></div>
+            <div class="inline-help-wrap"><button id="forceBatchBtn" class="secondary">Force batch now</button><button type="button" class="help-chip" title="Rebuilds the selected text summary using the messages currently saved for this thread." data-help="Rebuilds the selected text summary using the messages currently saved for this thread.">?</button></div>
+            <div class="inline-help-wrap"><button id="smsTrashBtn" class="secondary danger-btn">Trash / dismiss</button><button type="button" class="help-chip" title="Hides this text batch from the queue without saving it to CRM. Use this for spam, promos, or junk conversations that should not stay in the working queue." data-help="Hides this text batch from the queue without saving it to CRM. Use this for spam, promos, or junk conversations that should not stay in the working queue.">?</button></div>
+          </div>
+        </div>
+        <div class="cards">
+          <div class="card"><h3>Summary</h3><pre id="smsSummaryText"></pre></div>
+          <div class="card"><h3>Next steps</h3><pre id="smsNextStepsText"></pre></div>
+        </div>
+        <div class="cards">
+          <div class="card"><h3>Transcript</h3><pre id="smsTranscriptText"></pre></div>
+          <div class="card"><h3>Extracted clues</h3><ul id="smsCluesList"></ul></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>Routing rule for this phone number</h3></div>
+          <div id="routingRuleSummary" class="small block-space"></div>
+          <div class="rule-buttons">
+            <div class="inline-help-wrap"><button id="setManualBtn" class="secondary">Require manual approval</button><button type="button" class="help-chip" title="Keeps this number in manual-review mode so staff chooses the correct property or contact before anything is saved." data-help="Keeps this number in manual-review mode so staff chooses the correct property or contact before anything is saved.">?</button></div>
+          </div>
+          <div class="small hint">Use “Set auto homeowner” on a match below when this number should always auto-attach to one homeowner profile. Use “Save PM property” for property-manager favorites that stay manual.</div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>Most probable LACRM matches</h3><div class="inline-help-wrap"><button id="reloadSmsCandidatesBtn" class="secondary">Reload suggestions</button><button type="button" class="help-chip" title="Re-runs the CRM matching logic for this item. Use this after a new clue appears or after you change a routing rule." data-help="Re-runs the CRM matching logic for this item. Use this after a new clue appears or after you change a routing rule.">?</button></div></div>
+          <div id="smsCandidateList"></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>Manual search</h3><button type="button" class="help-chip" title="Search Less Annoying CRM manually by owner name, property address, condo name, unit, or company." data-help="Search Less Annoying CRM manually by owner name, property address, condo name, unit, or company.">?</button></div>
+          <div class="search-row">
+            <input id="smsSearchInput" type="text" placeholder="Search by address, owner, condo name, unit, or company">
+            <button id="smsSearchBtn">Search LACRM</button>
+          </div>
+          <div id="smsSearchResults"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast"></div>
+
+  <div id="helpModal" class="modal-overlay hidden">
+    <div class="modal-card small-modal">
+      <div class="modal-header">
+        <h3>What this button does</h3>
+        <button id="helpCloseBtn" class="secondary">Close</button>
+      </div>
+      <p id="helpText" class="modal-copy"></p>
+    </div>
+  </div>
+
+  <div id="confirmModal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="confirmTitle">Confirm action</h3>
+      </div>
+      <p id="confirmText" class="modal-copy"></p>
+      <div class="modal-actions">
+        <button id="confirmCancelBtn" class="secondary">Cancel</button>
+        <button id="confirmActionBtn" class="confirm-btn warn">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  
+  <div id="taskModal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="taskModalTitle">Create follow-up task</h3>
+        <button id="taskCloseBtn" class="secondary">Close</button>
+      </div>
+      <div class="task-form">
+        <div class="task-context-box">
+          <div><strong>Conversation:</strong> <span id="taskContextType">—</span></div>
+          <div><strong>Contact:</strong> <span id="taskContextContact">—</span></div>
+        </div>
+        <div class="preset-row">
+          <button id="taskPresetCallback" class="secondary">Callback</button>
+          <button id="taskPresetSchedule" class="secondary">Schedule service</button>
+          <button id="taskPresetEstimate" class="secondary">Send estimate</button>
+          <button id="taskPresetFollowup" class="secondary">General follow-up</button>
+        </div>
+        <label class="form-label">Task name
+          <input id="taskNameInput" type="text" placeholder="Call back customer about heater issue">
+        </label>
+        <div class="task-grid">
+          <label class="form-label">Due date
+            <input id="taskDueDateInput" type="date">
+          </label>
+          <label class="form-label">Assign to
+            <select id="taskAssignedToSelect"></select>
+          </label>
+        </div>
+        <label class="form-label">Description
+          <textarea id="taskDescriptionInput" rows="8" placeholder="Task notes will go here."></textarea>
+        </label>
+        <div class="check-row">
+          <label><input id="taskIncludeNextSteps" type="checkbox" checked> Include extracted next steps in task description</label>
+        </div>
+        <div class="modal-actions">
+          <button id="taskCancelBtn" class="secondary">Cancel</button>
+          <button id="taskCreateBtn" class="confirm-btn confirm">Create task</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

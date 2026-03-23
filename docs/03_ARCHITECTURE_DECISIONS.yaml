@@ -1,0 +1,53 @@
+project_name: unified_pool_service_operations_core
+source_of_truth_rule: internal_platform_is_canonical
+ingestion_pipeline:
+  stages:
+    - raw
+    - normalized
+    - matched
+    - approved
+    - applied
+database:
+  target_engine: postgres
+  migrations: alembic
+  layout: schema_per_layer
+  raw_payload_storage: raw_jsonb_full
+idempotency:
+  strategy:
+    - preserve_raw_event_identity
+    - preserve_apply_event_identity
+eventing:
+  pattern: outbox
+jobs:
+  early_phase: in_process_cron
+  later_phase: queue_worker
+matching:
+  default_strategy:
+    - deterministic_rules
+    - fuzzy_similarity
+facts:
+  initial_grain: visit_grain
+intelligence:
+  phase_1: deterministic_rules
+  phase_2: expected_vs_actual
+  phase_3: driver_attribution
+  phase_4: probabilistic_updates
+  phase_5: recommendation_engine
+connector_order:
+  - lacrm_and_ringcentral
+  - freshbooks
+  - skimmer
+  - heritage
+baseline_assignment:
+  main_repo: pool_service_platform_v3
+  bridge_seed: direct_bridge_files
+  chemistry_oracle: workbook
+  selective_mines:
+    - pool_service_pricing_v1
+    - pool_volume_tool_live_proto
+ignore_as_baseline:
+  - rpc_root
+  - kpsbridge03.11.26_2304_truncated_archive
+security:
+  never_upload_live_env: true
+  rotate_exposed_secrets: true

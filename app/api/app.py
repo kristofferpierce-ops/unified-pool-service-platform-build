@@ -1,0 +1,52 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+
+from app.api.routes import baseline, commercial, expenses, invoices, properties, reports, tools
+from app.api.routes.bootstrap_admin import router as bootstrap_router
+from app.api.routes.connectors import router as connectors_router
+from app.api.routes.estimates import router as estimates_router
+from app.api.routes.front_desk import router as front_desk_router
+from app.api.routes.health import router as health_router
+from app.api.routes.system_settings import router as system_settings_router
+from app.core.config import APP_NAME, STATIC_DIR
+from app.core.database import create_db_and_tables, get_session
+from app.services.bootstrap import seed_defaults
+
+app = FastAPI(title=APP_NAME)
+app.include_router(health_router)
+app.include_router(bootstrap_router)
+app.include_router(system_settings_router)
+app.include_router(estimates_router)
+app.include_router(connectors_router)
+app.include_router(front_desk_router)
+
+# Legacy platform routes kept active
+app.include_router(expenses.router)
+app.include_router(baseline.router)
+app.include_router(properties.router)
+app.include_router(commercial.router)
+app.include_router(invoices.router)
+app.include_router(reports.router)
+app.include_router(tools.router)
+
+app.mount('/static', StaticFiles(directory=STATIC_DIR), name='static')
+
+
+@app.on_event('startup')
+def startup() -> None:
+    create_db_and_tables()
+    with get_session() as session:
+        seed_defaults(session)
+
+
+@app.get('/')
+def front_page():
+    dashboard = Path(STATIC_DIR) / 'frontdesk.html'
+    if dashboard.exists():
+        return FileResponse(dashboard)
+    return {'message': APP_NAME}

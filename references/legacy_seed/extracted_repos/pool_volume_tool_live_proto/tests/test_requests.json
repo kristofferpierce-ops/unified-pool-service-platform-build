@@ -1,0 +1,31 @@
+{
+  "demo_public_pool": {
+    "parcel_id": "demo-public-pool"
+  },
+  "demo_resort_pool": {
+    "parcel_id": "demo-resort-pool"
+  },
+  "live_key_west_example": {
+    "address": "1100 Simonton Street, Key West, FL 33040",
+    "use_live_sources": true,
+    "manual_overrides": {
+      "property_type": "commercial"
+    }
+  },
+  "manual_only": {
+    "imagery_measurements": [
+      {
+        "source": "manual_trace",
+        "measured_surface_area_sqft": 620,
+        "shape": "freeform",
+        "confidence": 0.91
+      }
+    ],
+    "manual_overrides": {
+      "shallow_depth_ft": 3.5,
+      "deep_depth_ft": 6.5,
+      "attached_spa_gallons": 550,
+      "property_type": "residential"
+    }
+  }
+}
