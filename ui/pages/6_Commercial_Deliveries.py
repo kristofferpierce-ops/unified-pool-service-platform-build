@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -76,10 +76,10 @@ with Session(engine) as session:
                 st.success("Delivery item added")
 
     st.subheader("Monthly direct-delivery report")
-    start_date = st.date_input("Start date", value=(datetime.utcnow().date().replace(day=1)))
-    end_date = st.date_input("End date", value=datetime.utcnow().date())
+    start_date = st.date_input("Start date", value=(datetime.now(UTC).date().replace(day=1)))
+    end_date = st.date_input("End date", value=datetime.now(UTC).date())
     report_df = direct_delivery_report_dataframe(session, datetime.combine(start_date, datetime.min.time()), datetime.combine(end_date, datetime.max.time()))
-    st.dataframe(report_df, use_container_width=True, hide_index=True)
+    st.dataframe(report_df, width='stretch', hide_index=True)
     if st.button("Export report to Excel"):
         path = export_direct_delivery_report_xlsx(session, datetime.combine(start_date, datetime.min.time()), datetime.combine(end_date, datetime.max.time()))
         st.success(f"Exported: {path}")

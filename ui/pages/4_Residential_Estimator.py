@@ -83,4 +83,4 @@ with Session(engine) as session:
             }
             for k, v in output.chemical_quantities.items()
         ])
-        st.dataframe(chem_df, use_container_width=True, hide_index=True)
+        st.dataframe(chem_df, width='stretch', hide_index=True)

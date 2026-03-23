@@ -223,12 +223,12 @@ with Session(engine) as session:
                 {'Line Item': 'Chemicals', 'Monthly Real Cost': totals['monthly_chemical_real_cost'], 'Monthly Sell Price': totals['monthly_chemical_sell_price'], 'Annual Real Cost': totals['annual_chemical_real_cost'], 'Annual Sell Price': totals['annual_chemical_sell_price']},
                 {'Line Item': 'Combined Total', 'Monthly Real Cost': totals['monthly_real_cost'], 'Monthly Sell Price': totals['monthly_sell_price'], 'Annual Real Cost': totals['annual_real_cost'], 'Annual Sell Price': totals['annual_sell_price']},
             ])
-            st.dataframe(breakdown_df, use_container_width=True, hide_index=True)
+            st.dataframe(breakdown_df, width='stretch', hide_index=True)
 
         st.subheader('Chemical cost schedule')
         chem_rows = [{'Chemical': row['chemical'], 'Monthly Qty': row['monthly_qty'], 'Annual Qty': row['annual_qty'], 'Monthly Real Cost': row['monthly_real_cost'], 'Monthly Sell Price': row['monthly_sell_price'], 'Annual Real Cost': row['annual_real_cost'], 'Annual Sell Price': row['annual_sell_price']} for row in context['chemicals']]
         chem_rows.append({'Chemical': 'TOTAL CHEMICALS', 'Monthly Qty': None, 'Annual Qty': None, 'Monthly Real Cost': totals['monthly_chemical_real_cost'], 'Monthly Sell Price': totals['monthly_chemical_sell_price'], 'Annual Real Cost': totals['annual_chemical_real_cost'], 'Annual Sell Price': totals['annual_chemical_sell_price']})
-        st.dataframe(pd.DataFrame(chem_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(chem_rows), width='stretch', hide_index=True)
 
         html_report = render_estimate_html(context, include_print_button=True)
         pdf_report = render_estimate_pdf(context)
@@ -252,7 +252,7 @@ with Session(engine) as session:
     st.subheader('Saved estimates for this vessel')
     history = _history_rows(session, prop.id, vessel.id)
     if history:
-        st.dataframe(pd.DataFrame(history), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(history), width='stretch', hide_index=True)
         last_saved_run_id = st.session_state.get(LIBRARY_KEY)
         if last_saved_run_id:
             st.caption(f'Latest saved run available in Estimate Library: #{last_saved_run_id}')
@@ -260,7 +260,7 @@ with Session(engine) as session:
         st.info('No saved estimates yet for this property and vessel.')
 
     st.subheader('Equipment assets for selected vessel')
-    st.dataframe(pd.DataFrame([row.model_dump() for row in assets]), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame([row.model_dump() for row in assets]), width='stretch', hide_index=True)
 
     with st.form('add_equipment'):
         asset_type = st.text_input('Asset type')

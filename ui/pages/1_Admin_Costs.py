@@ -21,7 +21,7 @@ with Session(engine) as session:
         {"id": row.id, "Category": row.category, "Name": row.name, "Annual Cost": row.annual_cost, "Notes": row.notes}
         for row in expense_rows
     ])
-    edited = st.data_editor(expense_df, use_container_width=True, hide_index=True, num_rows="dynamic")
+    edited = st.data_editor(expense_df, width='stretch', hide_index=True, num_rows="dynamic")
     if st.button("Save expense changes", type="primary"):
         for _, r in edited.iterrows():
             if pd.isna(r.get("id")):
@@ -51,7 +51,7 @@ with Session(engine) as session:
         }
         for row in product_rows
     ])
-    edited_products = st.data_editor(product_df, use_container_width=True, hide_index=True, num_rows="dynamic")
+    edited_products = st.data_editor(product_df, width='stretch', hide_index=True, num_rows="dynamic")
     if st.button("Save product changes"):
         for _, r in edited_products.iterrows():
             if pd.isna(r.get("id")):
@@ -76,4 +76,4 @@ with Session(engine) as session:
     st.subheader("Recent price history")
     history_rows = list(session.exec(select(ProductPriceHistory).order_by(ProductPriceHistory.effective_date.desc(), ProductPriceHistory.id.desc())).all())
     hist_df = pd.DataFrame([row.model_dump() for row in history_rows]) if history_rows else pd.DataFrame()
-    st.dataframe(hist_df, use_container_width=True, hide_index=True)
+    st.dataframe(hist_df, width='stretch', hide_index=True)

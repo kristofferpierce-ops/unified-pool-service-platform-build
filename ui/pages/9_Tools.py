@@ -37,7 +37,7 @@ with Session(engine) as session:
             }
             for tool in tools
         ])
-        st.dataframe(tools_df, use_container_width=True, hide_index=True)
+        st.dataframe(tools_df, width='stretch', hide_index=True)
 
     tab1, tab2, tab3 = st.tabs(["Property authority verification", "Approved agents", "Recent tool history"])
 
@@ -135,7 +135,7 @@ with Session(engine) as session:
             selected_prop_id = property_map[prop_label] if property_map else None
             agents = list_approved_agents(session, selected_prop_id) if selected_prop_id else []
             if agents:
-                st.dataframe(pd.DataFrame([a.model_dump() for a in agents]), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame([a.model_dump() for a in agents]), width='stretch', hide_index=True)
 
     with tab3:
         cases = list_verification_cases(session, limit=100)
@@ -151,6 +151,6 @@ with Session(engine) as session:
                     "Status": case.verification_status,
                     "Recommended Action": case.recommended_action,
                 })
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(rows), width='stretch', hide_index=True)
         else:
             st.info("No property verification cases have been run yet.")

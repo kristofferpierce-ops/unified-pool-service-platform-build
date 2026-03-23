@@ -62,7 +62,7 @@ with Session(engine) as session:
 
     table_df = pd.DataFrame([{'Run ID': row['run_id'], 'Saved At': row['saved_at'].replace('T', ' ')[:16], 'Account': row['account_name'], 'Property': row['property_name'], 'Vessel': row['vessel_name'], 'Scenario': row['scenario_name'], 'Monthly Sell': row['monthly_sell_price'], 'Annual Sell': row['annual_sell_price'], 'Monthly Real': row['monthly_real_cost']} for row in filtered])
     st.subheader('Saved estimate runs')
-    st.dataframe(table_df, use_container_width=True, hide_index=True)
+    st.dataframe(table_df, width='stretch', hide_index=True)
 
     default_run_id = st.session_state.get(LIBRARY_KEY)
     run_options = {f"#{row['run_id']} | {row['property_name']} | {row['vessel_name']} | {_money(row['monthly_sell_price'])}/mo": row['run_id'] for row in filtered}
@@ -124,7 +124,7 @@ with Session(engine) as session:
         {'Line Item': 'Chemicals', 'Monthly Real Cost': totals['monthly_chemical_real_cost'], 'Monthly Sell Price': totals['monthly_chemical_sell_price'], 'Annual Real Cost': totals['annual_chemical_real_cost'], 'Annual Sell Price': totals['annual_chemical_sell_price']},
         {'Line Item': 'Combined Total', 'Monthly Real Cost': totals['monthly_real_cost'], 'Monthly Sell Price': totals['monthly_sell_price'], 'Annual Real Cost': totals['annual_real_cost'], 'Annual Sell Price': totals['annual_sell_price']},
     ]
-    st.dataframe(pd.DataFrame(breakdown_rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(breakdown_rows), width='stretch', hide_index=True)
 
     html_report = render_estimate_html(context, include_print_button=True)
     pdf_report = render_estimate_pdf(context)
@@ -141,7 +141,7 @@ with Session(engine) as session:
 
     st.subheader('Chemical schedule')
     chemical_df = pd.DataFrame([{'Chemical': row['chemical'], 'Monthly Qty': row['monthly_qty'], 'Annual Qty': row['annual_qty'], 'Monthly Real Cost': row['monthly_real_cost'], 'Monthly Sell Price': row['monthly_sell_price'], 'Annual Real Cost': row['annual_real_cost'], 'Annual Sell Price': row['annual_sell_price']} for row in context['chemicals']])
-    st.dataframe(chemical_df, use_container_width=True, hide_index=True)
+    st.dataframe(chemical_df, width='stretch', hide_index=True)
 
     with st.expander('Show stored estimate input snapshot'):
         st.json(bundle['input_snapshot'])
@@ -159,4 +159,4 @@ with Session(engine) as session:
             {'Metric': 'Monthly chemical sell price', 'Selected run': totals['monthly_chemical_sell_price'], 'Compared run': compare_totals['monthly_chemical_sell_price'], 'Difference': totals['monthly_chemical_sell_price'] - compare_totals['monthly_chemical_sell_price']},
             {'Metric': 'Monthly service sell price', 'Selected run': totals['monthly_service_sell_price'], 'Compared run': compare_totals['monthly_service_sell_price'], 'Difference': totals['monthly_service_sell_price'] - compare_totals['monthly_service_sell_price']},
         ])
-        st.dataframe(compare_df, use_container_width=True, hide_index=True)
+        st.dataframe(compare_df, width='stretch', hide_index=True)

@@ -22,10 +22,10 @@ with Session(engine) as session:
     models = list(session.exec(select(BaselineModelVersion).order_by(BaselineModelVersion.model_family, BaselineModelVersion.id)).all())
 
     st.subheader("Climate profiles")
-    st.dataframe(pd.DataFrame([row.model_dump() for row in climates]), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame([row.model_dump() for row in climates]), width='stretch', hide_index=True)
 
     st.subheader("Water profiles")
-    st.dataframe(pd.DataFrame([row.model_dump() for row in waters]), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame([row.model_dump() for row in waters]), width='stretch', hide_index=True)
 
     st.subheader("Model versions")
     model_labels = {f"{m.model_family} :: {m.version_name}": m.id for m in models}

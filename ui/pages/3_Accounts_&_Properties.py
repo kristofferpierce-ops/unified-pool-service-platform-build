@@ -29,7 +29,7 @@ with Session(engine) as session:
             st.success("Account created")
 
     accounts = list(session.exec(select(Account).order_by(Account.account_type, Account.name)).all())
-    st.dataframe(pd.DataFrame([row.model_dump() for row in accounts]), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame([row.model_dump() for row in accounts]), width='stretch', hide_index=True)
 
     st.subheader("Create property and vessel")
     if accounts:
@@ -75,6 +75,6 @@ with Session(engine) as session:
     properties = list(session.exec(select(Property).order_by(Property.account_type, Property.name)).all())
     vessels = list(session.exec(select(PoolVessel).order_by(PoolVessel.property_id, PoolVessel.name)).all())
     st.subheader("Properties")
-    st.dataframe(pd.DataFrame([row.model_dump() for row in properties]), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame([row.model_dump() for row in properties]), width='stretch', hide_index=True)
     st.subheader("Vessels")
-    st.dataframe(pd.DataFrame([row.model_dump() for row in vessels]), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame([row.model_dump() for row in vessels]), width='stretch', hide_index=True)

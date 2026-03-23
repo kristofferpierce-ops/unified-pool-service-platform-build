@@ -51,7 +51,7 @@ with Session(engine) as session:
     else:
         variance_df = pd.DataFrame(comparison["chemical_variance"])
         st.subheader("Chemical variance")
-        st.dataframe(variance_df, use_container_width=True, hide_index=True)
+        st.dataframe(variance_df, width='stretch', hide_index=True)
         if not variance_df.empty:
             chosen = st.selectbox("Save suggested chemical multiplier for", variance_df["chemical"].tolist())
             chosen_row = variance_df[variance_df["chemical"] == chosen].iloc[0]
