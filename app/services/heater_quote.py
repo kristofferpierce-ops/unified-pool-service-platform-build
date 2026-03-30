@@ -813,6 +813,11 @@ def _serialize_heater_package_link(link: QuoteCaseExternalLink) -> dict[str, Any
     grand_total = round(equipment_total + labor_total + materials_total, 2)
     package_summary = payload.get('package_summary') if isinstance(payload.get('package_summary'), dict) else {}
     currency_code = str(package_summary.get('currency_code') or payload.get('candidate', {}).get('currency_code') or 'USD')
+    original_lines = payload.get('original_prepared_lines') or normalized_lines
+    if not isinstance(original_lines, list):
+        original_lines = normalized_lines
+    normalized_original_lines = [item for item in original_lines if isinstance(item, dict)]
+    has_overrides = normalized_lines != normalized_original_lines or bool(package_summary.get('edited'))
     return {
         'external_link_id': link.id,
         'external_id': link.external_id,
@@ -830,7 +835,146 @@ def _serialize_heater_package_link(link: QuoteCaseExternalLink) -> dict[str, Any
             'line_count': len(normalized_lines),
         },
         'prepared_lines': normalized_lines,
+        'original_prepared_lines': normalized_original_lines,
+        'has_overrides': has_overrides,
         'attached_by': payload.get('attached_by', ''),
+    }
+
+
+
+def _normalize_package_lines(lines: list[dict[str, Any]], currency_code: str) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for item in lines:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get('name') or '').strip()
+        if not name:
+            continue
+        description = str(item.get('description') or '').strip()
+        category = str(item.get('category') or 'misc_materials').strip() or 'misc_materials'
+        try:
+            qty = float(item.get('qty') or 0)
+        except (TypeError, ValueError):
+            qty = 0.0
+        if qty <= 0:
+            qty = 1.0
+        try:
+            amount = round(float(item.get('amount') or item.get('unit_amount') or 0), 2)
+        except (TypeError, ValueError):
+            amount = 0.0
+        normalized.append(
+            {
+                'type': int(item.get('type', 0) or 0),
+                'name': name,
+                'description': description,
+                'qty': qty,
+                'amount': amount,
+                'code': str(item.get('code') or item.get('currency_code') or currency_code or 'USD'),
+                'currency_code': str(item.get('currency_code') or item.get('code') or currency_code or 'USD'),
+                'taxName1': item.get('taxName1', ''),
+                'taxAmount1': float(item.get('taxAmount1', 0) or 0),
+                'taxName2': item.get('taxName2', ''),
+                'taxAmount2': float(item.get('taxAmount2', 0) or 0),
+                'category': category,
+            }
+        )
+    if not normalized:
+        raise ValueError('At least one valid package line is required.')
+    return normalized
+
+
+
+def _summarize_package_lines(lines: list[dict[str, Any]], package_summary: dict[str, Any], *, edited: bool, edited_by: str) -> dict[str, Any]:
+    equipment_total = round(sum(_line_total(item) for item in lines if str(item.get('category') or '') == 'equipment'), 2)
+    labor_total = round(sum(_line_total(item) for item in lines if str(item.get('category') or '') == 'labor'), 2)
+    materials_total = round(sum(_line_total(item) for item in lines if str(item.get('category') or '') not in {'equipment', 'labor'}), 2)
+    grand_total = round(equipment_total + labor_total + materials_total, 2)
+    updated_summary = {
+        **(package_summary or {}),
+        'equipment_total': equipment_total,
+        'labor_total': labor_total,
+        'materials_total': materials_total,
+        'package_total': grand_total,
+        'line_count': len(lines),
+        'edited': edited,
+    }
+    if edited:
+        updated_summary['edited_by'] = edited_by
+        updated_summary['edited_at'] = datetime.utcnow().isoformat()
+    else:
+        updated_summary.pop('edited_by', None)
+        updated_summary.pop('edited_at', None)
+    return updated_summary
+
+
+
+def update_heater_package_lines(
+    session: Session,
+    *,
+    quote_case_id: int,
+    external_link_id: int,
+    edited_lines: list[dict[str, Any]],
+    edited_by: str = 'operator',
+) -> dict[str, Any]:
+    case = get_quote_case(session, quote_case_id)
+    if case is None:
+        raise ValueError('Quote case not found')
+    link = session.get(QuoteCaseExternalLink, external_link_id)
+    if link is None or link.quote_case_id != quote_case_id or link.system_slug != 'heater_quote':
+        raise ValueError('Attached heater package not found')
+    payload = _safe_load(link.payload_json)
+    currency_code = str((payload.get('package_summary') or {}).get('currency_code') or (payload.get('candidate') or {}).get('currency_code') or 'USD')
+    original_lines = payload.get('original_prepared_lines') or payload.get('prepared_lines') or []
+    if not isinstance(original_lines, list):
+        original_lines = payload.get('prepared_lines') if isinstance(payload.get('prepared_lines'), list) else []
+    normalized_original = _normalize_package_lines(original_lines, currency_code) if original_lines else []
+    normalized_lines = _normalize_package_lines(edited_lines, currency_code)
+    if normalized_original and normalized_lines == normalized_original:
+        edited = False
+    else:
+        edited = True
+    payload['original_prepared_lines'] = normalized_original or normalized_lines
+    payload['original_package_summary'] = payload.get('original_package_summary') or {**(payload.get('package_summary') or {})}
+    payload['prepared_lines'] = normalized_lines
+    payload['prepared_line'] = normalized_lines[0] if normalized_lines else {}
+    payload['package_summary'] = _summarize_package_lines(normalized_lines, payload.get('package_summary') or {}, edited=edited, edited_by=edited_by)
+    link.payload_json = dumps(payload)
+    link.updated_at = datetime.utcnow()
+    session.add(link)
+    session.commit()
+    return {
+        'external_link_id': external_link_id,
+        'quote_case_id': quote_case_id,
+        'package_workspace': get_quote_case_heater_package_workspace(session, quote_case_id),
+    }
+
+
+
+def reset_heater_package_lines(session: Session, *, quote_case_id: int, external_link_id: int) -> dict[str, Any]:
+    case = get_quote_case(session, quote_case_id)
+    if case is None:
+        raise ValueError('Quote case not found')
+    link = session.get(QuoteCaseExternalLink, external_link_id)
+    if link is None or link.quote_case_id != quote_case_id or link.system_slug != 'heater_quote':
+        raise ValueError('Attached heater package not found')
+    payload = _safe_load(link.payload_json)
+    currency_code = str((payload.get('package_summary') or {}).get('currency_code') or (payload.get('candidate') or {}).get('currency_code') or 'USD')
+    original_lines = payload.get('original_prepared_lines') or payload.get('prepared_lines') or []
+    if not isinstance(original_lines, list) or not original_lines:
+        raise ValueError('No original package lines are stored for this attachment.')
+    normalized_original = _normalize_package_lines(original_lines, currency_code)
+    original_summary = payload.get('original_package_summary') if isinstance(payload.get('original_package_summary'), dict) else {}
+    payload['prepared_lines'] = normalized_original
+    payload['prepared_line'] = normalized_original[0] if normalized_original else {}
+    payload['package_summary'] = _summarize_package_lines(normalized_original, original_summary, edited=False, edited_by='')
+    link.payload_json = dumps(payload)
+    link.updated_at = datetime.utcnow()
+    session.add(link)
+    session.commit()
+    return {
+        'external_link_id': external_link_id,
+        'quote_case_id': quote_case_id,
+        'package_workspace': get_quote_case_heater_package_workspace(session, quote_case_id),
     }
 
 
@@ -970,9 +1114,27 @@ def attach_heater_candidate_to_quote_case(
                 'package_total': package_preview['package_total'],
                 'currency_code': package_preview['currency_code'],
                 'options': package_preview['options'],
+                'equipment_total': round(sum(_line_total(item) for item in package_preview['lines'] if str(item.get('category') or '') == 'equipment'), 2),
+                'labor_total': round(sum(_line_total(item) for item in package_preview['lines'] if str(item.get('category') or '') == 'labor'), 2),
+                'materials_total': round(sum(_line_total(item) for item in package_preview['lines'] if str(item.get('category') or '') not in {'equipment', 'labor'}), 2),
+                'line_count': len(package_preview['lines']),
+                'edited': False,
             },
             'prepared_line': package_preview['lines'][0] if package_preview['lines'] else {},
             'prepared_lines': package_preview['lines'],
+            'original_prepared_lines': package_preview['lines'],
+            'original_package_summary': {
+                'package_profile': package_preview['package_profile'],
+                'labor_profile': package_preview['labor_profile'],
+                'package_total': package_preview['package_total'],
+                'currency_code': package_preview['currency_code'],
+                'options': package_preview['options'],
+                'equipment_total': round(sum(_line_total(item) for item in package_preview['lines'] if str(item.get('category') or '') == 'equipment'), 2),
+                'labor_total': round(sum(_line_total(item) for item in package_preview['lines'] if str(item.get('category') or '') == 'labor'), 2),
+                'materials_total': round(sum(_line_total(item) for item in package_preview['lines'] if str(item.get('category') or '') not in {'equipment', 'labor'}), 2),
+                'line_count': len(package_preview['lines']),
+                'edited': False,
+            },
             'source_payload': candidate_payload,
         },
     )

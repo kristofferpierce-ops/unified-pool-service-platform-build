@@ -14,8 +14,9 @@ from app.services.heater_quote import (
     get_heater_quote_settings,
     get_quote_case_heater_package_workspace,
     list_heater_quote_runs,
-    remove_heater_package_from_quote_case,
+    reset_heater_package_lines,
     serialize_heater_quote_run,
+    update_heater_package_lines,
 )
 
 router = APIRouter(prefix='/heater-quotes', tags=['heater-quotes'])
@@ -55,7 +56,6 @@ class HeaterQuoteAttachBody(BaseModel):
     include_startup_visit: bool | None = None
     misc_materials_amount: float = 0.0
     labor_rate_override: float | None = None
-    replace_existing: bool = False
 
 
 class HeaterQuotePackagePreviewBody(BaseModel):
@@ -70,6 +70,23 @@ class HeaterQuotePackagePreviewBody(BaseModel):
     include_startup_visit: bool | None = None
     misc_materials_amount: float = 0.0
     labor_rate_override: float | None = None
+
+
+class HeaterPackageLineBody(BaseModel):
+    name: str
+    description: str = ''
+    qty: float = Field(default=1.0, gt=0)
+    amount: float = 0.0
+    category: str = 'misc_materials'
+
+
+class HeaterPackageUpdateBody(BaseModel):
+    lines: list[HeaterPackageLineBody]
+    edited_by: str = 'operator'
+
+
+class HeaterPackageResetBody(BaseModel):
+    edited_by: str = 'operator'
 
 
 @router.get('/config')
@@ -150,7 +167,6 @@ def heater_quote_package_preview(run_id: int, body: HeaterQuotePackagePreviewBod
                 include_startup_visit=body.include_startup_visit,
                 misc_materials_amount=body.misc_materials_amount,
                 labor_rate_override=body.labor_rate_override,
-                replace_existing=body.replace_existing,
             )
         except ValueError as exc:
             message = str(exc).lower()
@@ -185,17 +201,38 @@ def attach_heater_quote(run_id: int, body: HeaterQuoteAttachBody):
             raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
-@router.get('/cases/{quote_case_id}/packages')
-def heater_quote_case_packages(quote_case_id: int):
+@router.get('/workspace/{quote_case_id}')
+def heater_quote_workspace(quote_case_id: int):
     with Session(engine) as session:
         return get_quote_case_heater_package_workspace(session, quote_case_id)
 
 
-@router.delete('/cases/{quote_case_id}/packages/{external_link_id}')
-def delete_attached_heater_package(quote_case_id: int, external_link_id: int):
+@router.post('/workspace/{quote_case_id}/packages/{external_link_id}')
+def update_heater_workspace_package(quote_case_id: int, external_link_id: int, body: HeaterPackageUpdateBody):
     with Session(engine) as session:
         try:
-            return remove_heater_package_from_quote_case(session, quote_case_id=quote_case_id, external_link_id=external_link_id)
+            return update_heater_package_lines(
+                session,
+                quote_case_id=quote_case_id,
+                external_link_id=external_link_id,
+                edited_lines=[item.model_dump() for item in body.lines],
+                edited_by=body.edited_by,
+            )
+        except ValueError as exc:
+            message = str(exc).lower()
+            status_code = 404 if 'not found' in message else 400
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
+@router.post('/workspace/{quote_case_id}/packages/{external_link_id}/reset')
+def reset_heater_workspace_package(quote_case_id: int, external_link_id: int, body: HeaterPackageResetBody | None = None):
+    with Session(engine) as session:
+        try:
+            return reset_heater_package_lines(
+                session,
+                quote_case_id=quote_case_id,
+                external_link_id=external_link_id,
+            )
         except ValueError as exc:
             message = str(exc).lower()
             status_code = 404 if 'not found' in message else 400

@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+import pandas as pd
 import streamlit as st
 from sqlmodel import Session, select
 
@@ -29,7 +30,7 @@ from app.services.freshbooks_sync import (
     refresh_quote_case_from_freshbooks,
     sync_quote_case_to_freshbooks,
 )
-from app.services.heater_quote import get_quote_case_heater_package_workspace, remove_heater_package_from_quote_case
+from app.services.heater_quote import get_quote_case_heater_package_workspace, remove_heater_package_from_quote_case, reset_heater_package_lines, update_heater_package_lines
 from app.services.quote_workflow import (
     create_quote_case,
     get_dashboard_summary,
@@ -276,15 +277,74 @@ else:
                             {
                                 'Name': line.get('name'),
                                 'Description': line.get('description'),
-                                'Qty': line.get('qty'),
-                                'Unit Price': line.get('amount'),
+                                'Qty': float(line.get('qty') or 0),
+                                'Unit Price': float(line.get('amount') or 0),
                                 'Line Total': (float(line.get('qty') or 0) * float(line.get('amount') or 0)),
                                 'Category': line.get('category', ''),
                             }
                             for line in package.get('prepared_lines', [])
                         ]
+                        if package.get('has_overrides'):
+                            st.info('This package has edited line overrides. FreshBooks draft creation will use these edited lines first for this quote case.')
                         if package_rows:
-                            st.dataframe(package_rows, width='stretch')
+                            edited_rows = st.data_editor(
+                                pd.DataFrame(package_rows),
+                                key=f"heater_package_editor_{case['id']}_{package['external_link_id']}",
+                                width='stretch',
+                                num_rows='dynamic',
+                                hide_index=True,
+                                disabled=['Line Total'],
+                            )
+                            editor_left, editor_right = st.columns([1, 1])
+                            if editor_left.button('Save package line overrides', key=f"save_heater_package_{case['id']}_{package['external_link_id']}", help='Save edited package lines for this quote case. These edited lines will be used by FreshBooks draft creation before the original attached package lines.'):
+                                edited_payload = []
+                                for _, row in edited_rows.iterrows():
+                                    name = str(row.get('Name') or '').strip()
+                                    if not name:
+                                        continue
+                                    try:
+                                        qty = float(row.get('Qty') or 0)
+                                    except (TypeError, ValueError):
+                                        qty = 0.0
+                                    try:
+                                        amount = float(row.get('Unit Price') or 0)
+                                    except (TypeError, ValueError):
+                                        amount = 0.0
+                                    edited_payload.append(
+                                        {
+                                            'name': name,
+                                            'description': str(row.get('Description') or '').strip(),
+                                            'qty': qty,
+                                            'amount': amount,
+                                            'category': str(row.get('Category') or 'misc_materials').strip() or 'misc_materials',
+                                            'code': package.get('package_summary', {}).get('currency_code', 'USD'),
+                                        }
+                                    )
+                                with Session(engine) as session:
+                                    try:
+                                        update_heater_package_lines(
+                                            session,
+                                            quote_case_id=case['id'],
+                                            external_link_id=package['external_link_id'],
+                                            edited_lines=edited_payload,
+                                            edited_by='streamlit_operator',
+                                        )
+                                        st.success('Package line overrides saved.')
+                                    except ValueError as exc:
+                                        st.error(str(exc))
+                                st.rerun()
+                            if editor_right.button('Reset package lines', key=f"reset_heater_package_{case['id']}_{package['external_link_id']}", help='Restore the original attached package lines and clear any quote-case-specific edits for this package.'):
+                                with Session(engine) as session:
+                                    try:
+                                        reset_heater_package_lines(
+                                            session,
+                                            quote_case_id=case['id'],
+                                            external_link_id=package['external_link_id'],
+                                        )
+                                        st.success('Package lines reset to the original attached values.')
+                                    except ValueError as exc:
+                                        st.error(str(exc))
+                                st.rerun()
                         st.divider()
 
             move_cols = st.columns([3, 2, 1])

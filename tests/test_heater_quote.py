@@ -14,8 +14,11 @@ from app.services.heater_quote import (
     delete_heater_quote_run,
     ensure_heater_quote_settings,
     get_quote_case_heater_package_workspace,
+    list_quote_case_heater_package_lines,
     rank_heater_candidates,
     remove_heater_package_from_quote_case,
+    reset_heater_package_lines,
+    update_heater_package_lines,
 )
 from app.services.quote_workflow import create_quote_case
 
@@ -419,3 +422,106 @@ def test_remove_heater_package_from_quote_case_clears_workspace():
         remove_result = remove_heater_package_from_quote_case(session, quote_case_id=case.id, external_link_id=link_id)
         assert remove_result['removed_external_link_id'] == link_id
         assert remove_result['workspace']['package_count'] == 0
+
+
+
+def test_update_heater_package_lines_persists_quote_case_overrides():
+    with Session(engine) as session:
+        case = create_quote_case(
+            session,
+            pipeline_slug='new_residential_services',
+            title='Heater package override case',
+            requester_name='Override Owner',
+            requester_email='override@example.com',
+        )
+        run_payload = create_heater_quote_run(
+            session,
+            title='Override run',
+            quote_case_id=case.id,
+            direct_gallons=15000.0,
+            current_water_temp_f=73.0,
+            target_water_temp_f=84.0,
+            ambient_air_temp_f=79.0,
+            desired_heatup_hours=24.0,
+            heater_kind_preference='gas',
+            fuel_preference='auto',
+            unit_count=1,
+        )
+        attach_heater_candidate_to_quote_case(
+            session,
+            run_id=run_payload['id'],
+            candidate_id=run_payload['candidates'][0]['id'],
+            quote_case_id=case.id,
+            package_profile='gas_standard',
+            labor_profile='standard',
+        )
+        workspace = get_quote_case_heater_package_workspace(session, case.id)
+        link_id = workspace['packages'][0]['external_link_id']
+        update_result = update_heater_package_lines(
+            session,
+            quote_case_id=case.id,
+            external_link_id=link_id,
+            edited_lines=[
+                {'name': 'Edited heater equipment', 'description': 'Custom equipment package', 'qty': 1, 'amount': 2400.0, 'category': 'equipment'},
+                {'name': 'Edited labor', 'description': 'Custom labor package', 'qty': 1, 'amount': 950.0, 'category': 'labor'},
+            ],
+            edited_by='tester',
+        )
+        workspace = update_result['package_workspace']
+        assert workspace['package_count'] == 1
+        assert workspace['packages'][0]['has_overrides'] is True
+        line_names = {line['name'] for line in workspace['packages'][0]['prepared_lines']}
+        assert 'Edited heater equipment' in line_names
+        assert 'Edited labor' in line_names
+        attached_lines = list_quote_case_heater_package_lines(session, case.id)
+        assert any(line['name'] == 'Edited heater equipment' for line in attached_lines)
+
+
+
+def test_reset_heater_package_lines_restores_original_attachment_lines():
+    with Session(engine) as session:
+        case = create_quote_case(
+            session,
+            pipeline_slug='new_residential_services',
+            title='Heater package reset case',
+            requester_name='Reset Owner',
+            requester_email='reset@example.com',
+        )
+        run_payload = create_heater_quote_run(
+            session,
+            title='Reset run',
+            quote_case_id=case.id,
+            direct_gallons=15500.0,
+            current_water_temp_f=72.0,
+            target_water_temp_f=84.0,
+            ambient_air_temp_f=79.0,
+            desired_heatup_hours=24.0,
+            heater_kind_preference='gas',
+            fuel_preference='auto',
+            unit_count=1,
+        )
+        attach_heater_candidate_to_quote_case(
+            session,
+            run_id=run_payload['id'],
+            candidate_id=run_payload['candidates'][0]['id'],
+            quote_case_id=case.id,
+            package_profile='gas_standard',
+            labor_profile='standard',
+        )
+        original_workspace = get_quote_case_heater_package_workspace(session, case.id)
+        link_id = original_workspace['packages'][0]['external_link_id']
+        original_names = [line['name'] for line in original_workspace['packages'][0]['prepared_lines']]
+        update_heater_package_lines(
+            session,
+            quote_case_id=case.id,
+            external_link_id=link_id,
+            edited_lines=[
+                {'name': 'Edited one-off line', 'description': 'Temporary edit', 'qty': 1, 'amount': 500.0, 'category': 'misc_materials'},
+            ],
+            edited_by='tester',
+        )
+        reset_result = reset_heater_package_lines(session, quote_case_id=case.id, external_link_id=link_id)
+        workspace = reset_result['package_workspace']
+        assert workspace['packages'][0]['has_overrides'] is False
+        restored_names = [line['name'] for line in workspace['packages'][0]['prepared_lines']]
+        assert restored_names == original_names
