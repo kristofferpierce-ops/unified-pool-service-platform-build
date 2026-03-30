@@ -12,8 +12,10 @@ from app.services.heater_quote import (
     delete_heater_quote_run,
     get_heater_quote_dashboard_summary,
     get_heater_quote_settings,
-    serialize_heater_quote_run,
+    get_quote_case_heater_package_workspace,
     list_heater_quote_runs,
+    remove_heater_package_from_quote_case,
+    serialize_heater_quote_run,
 )
 
 router = APIRouter(prefix='/heater-quotes', tags=['heater-quotes'])
@@ -53,6 +55,7 @@ class HeaterQuoteAttachBody(BaseModel):
     include_startup_visit: bool | None = None
     misc_materials_amount: float = 0.0
     labor_rate_override: float | None = None
+    replace_existing: bool = False
 
 
 class HeaterQuotePackagePreviewBody(BaseModel):
@@ -147,6 +150,7 @@ def heater_quote_package_preview(run_id: int, body: HeaterQuotePackagePreviewBod
                 include_startup_visit=body.include_startup_visit,
                 misc_materials_amount=body.misc_materials_amount,
                 labor_rate_override=body.labor_rate_override,
+                replace_existing=body.replace_existing,
             )
         except ValueError as exc:
             message = str(exc).lower()
@@ -175,6 +179,23 @@ def attach_heater_quote(run_id: int, body: HeaterQuoteAttachBody):
                 misc_materials_amount=body.misc_materials_amount,
                 labor_rate_override=body.labor_rate_override,
             )
+        except ValueError as exc:
+            message = str(exc).lower()
+            status_code = 404 if 'not found' in message else 400
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
+@router.get('/cases/{quote_case_id}/packages')
+def heater_quote_case_packages(quote_case_id: int):
+    with Session(engine) as session:
+        return get_quote_case_heater_package_workspace(session, quote_case_id)
+
+
+@router.delete('/cases/{quote_case_id}/packages/{external_link_id}')
+def delete_attached_heater_package(quote_case_id: int, external_link_id: int):
+    with Session(engine) as session:
+        try:
+            return remove_heater_package_from_quote_case(session, quote_case_id=quote_case_id, external_link_id=external_link_id)
         except ValueError as exc:
             message = str(exc).lower()
             status_code = 404 if 'not found' in message else 400

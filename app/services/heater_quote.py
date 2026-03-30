@@ -782,8 +782,8 @@ def build_heater_package_preview(
 
 
 
-def list_quote_case_heater_package_lines(session: Session, quote_case_id: int) -> list[dict[str, Any]]:
-    links = list(
+def _list_quote_case_heater_links(session: Session, quote_case_id: int) -> list[QuoteCaseExternalLink]:
+    return list(
         session.exec(
             select(QuoteCaseExternalLink).where(
                 QuoteCaseExternalLink.quote_case_id == quote_case_id,
@@ -791,15 +791,92 @@ def list_quote_case_heater_package_lines(session: Session, quote_case_id: int) -
             ).order_by(QuoteCaseExternalLink.created_at)
         ).all()
     )
+
+
+def _line_total(line: dict[str, Any]) -> float:
+    try:
+        return round(float(line.get('qty') or 0) * float(line.get('amount') or 0), 2)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _serialize_heater_package_link(link: QuoteCaseExternalLink) -> dict[str, Any]:
+    payload = _safe_load(link.payload_json)
+    lines = payload.get('prepared_lines') or []
+    if not isinstance(lines, list) or not lines:
+        single = payload.get('prepared_line')
+        lines = [single] if isinstance(single, dict) else []
+    normalized_lines = [item for item in lines if isinstance(item, dict)]
+    equipment_total = round(sum(_line_total(item) for item in normalized_lines if str(item.get('category') or '') == 'equipment'), 2)
+    labor_total = round(sum(_line_total(item) for item in normalized_lines if str(item.get('category') or '') == 'labor'), 2)
+    materials_total = round(sum(_line_total(item) for item in normalized_lines if str(item.get('category') or '') not in {'equipment', 'labor'}), 2)
+    grand_total = round(equipment_total + labor_total + materials_total, 2)
+    package_summary = payload.get('package_summary') if isinstance(payload.get('package_summary'), dict) else {}
+    currency_code = str(package_summary.get('currency_code') or payload.get('candidate', {}).get('currency_code') or 'USD')
+    return {
+        'external_link_id': link.id,
+        'external_id': link.external_id,
+        'external_label': link.external_label,
+        'attached_at': link.created_at.isoformat() if link.created_at else '',
+        'updated_at': link.updated_at.isoformat() if link.updated_at else '',
+        'candidate': payload.get('candidate') if isinstance(payload.get('candidate'), dict) else {},
+        'package_summary': {
+            **package_summary,
+            'equipment_total': equipment_total,
+            'labor_total': labor_total,
+            'materials_total': materials_total,
+            'grand_total': grand_total,
+            'currency_code': currency_code,
+            'line_count': len(normalized_lines),
+        },
+        'prepared_lines': normalized_lines,
+        'attached_by': payload.get('attached_by', ''),
+    }
+
+
+def get_quote_case_heater_package_workspace(session: Session, quote_case_id: int) -> dict[str, Any]:
+    packages = [_serialize_heater_package_link(link) for link in _list_quote_case_heater_links(session, quote_case_id)]
+    currency_code = next((pkg.get('package_summary', {}).get('currency_code') for pkg in packages if pkg.get('package_summary', {}).get('currency_code')), 'USD')
+    equipment_total = round(sum(float(pkg.get('package_summary', {}).get('equipment_total') or 0) for pkg in packages), 2)
+    labor_total = round(sum(float(pkg.get('package_summary', {}).get('labor_total') or 0) for pkg in packages), 2)
+    materials_total = round(sum(float(pkg.get('package_summary', {}).get('materials_total') or 0) for pkg in packages), 2)
+    grand_total = round(sum(float(pkg.get('package_summary', {}).get('grand_total') or 0) for pkg in packages), 2)
+    return {
+        'quote_case_id': quote_case_id,
+        'package_count': len(packages),
+        'currency_code': currency_code,
+        'equipment_total': equipment_total,
+        'labor_total': labor_total,
+        'materials_total': materials_total,
+        'grand_total': grand_total,
+        'packages': packages,
+    }
+
+
+def list_quote_case_heater_package_lines(session: Session, quote_case_id: int) -> list[dict[str, Any]]:
     prepared_lines: list[dict[str, Any]] = []
-    for link in links:
-        payload = _safe_load(link.payload_json)
-        lines = payload.get('prepared_lines') or []
-        if isinstance(lines, list) and lines:
-            prepared_lines.extend([item for item in lines if isinstance(item, dict)])
-        elif isinstance(payload.get('prepared_line'), dict):
-            prepared_lines.append(payload['prepared_line'])
+    for package in get_quote_case_heater_package_workspace(session, quote_case_id).get('packages', []):
+        lines = package.get('prepared_lines') or []
+        prepared_lines.extend([item for item in lines if isinstance(item, dict)])
     return prepared_lines
+
+
+def remove_heater_package_from_quote_case(session: Session, *, quote_case_id: int, external_link_id: int) -> dict[str, Any]:
+    case = get_quote_case(session, quote_case_id)
+    if case is None:
+        raise ValueError('Quote case not found')
+    link = session.get(QuoteCaseExternalLink, external_link_id)
+    if link is None or link.quote_case_id != quote_case_id or link.system_slug != 'heater_quote':
+        raise ValueError('Attached heater package not found')
+    removed_external_id = link.external_id
+    session.delete(link)
+    session.commit()
+    return {
+        'removed_external_link_id': external_link_id,
+        'removed_external_id': removed_external_id,
+        'quote_case_id': quote_case_id,
+        'workspace': get_quote_case_heater_package_workspace(session, quote_case_id),
+    }
 
 
 def attach_heater_candidate_to_quote_case(
@@ -819,6 +896,7 @@ def attach_heater_candidate_to_quote_case(
     include_startup_visit: bool | None = None,
     misc_materials_amount: float = 0.0,
     labor_rate_override: float | None = None,
+    replace_existing: bool = False,
 ) -> dict[str, Any]:
     run = get_heater_quote_run(session, run_id)
     if run is None:
@@ -829,6 +907,15 @@ def attach_heater_candidate_to_quote_case(
     case = get_quote_case(session, quote_case_id)
     if case is None:
         raise ValueError('Quote case not found')
+
+    removed_existing_count = 0
+    if replace_existing:
+        existing_links = _list_quote_case_heater_links(session, quote_case_id)
+        removed_existing_count = len(existing_links)
+        for existing_link in existing_links:
+            session.delete(existing_link)
+        if existing_links:
+            session.commit()
 
     package_preview = build_heater_package_preview(
         session,
@@ -902,6 +989,8 @@ def attach_heater_candidate_to_quote_case(
             'currency_code': package_preview['currency_code'],
             'options': package_preview['options'],
         },
+        'removed_existing_count': removed_existing_count,
+        'package_workspace': get_quote_case_heater_package_workspace(session, quote_case_id),
     }
 
 

@@ -13,7 +13,9 @@ from app.services.heater_quote import (
     create_heater_quote_run,
     delete_heater_quote_run,
     ensure_heater_quote_settings,
+    get_quote_case_heater_package_workspace,
     rank_heater_candidates,
+    remove_heater_package_from_quote_case,
 )
 from app.services.quote_workflow import create_quote_case
 
@@ -260,3 +262,160 @@ def test_delete_heater_quote_run_removes_run_candidates_and_links():
         assert result['deleted_candidate_count'] >= 1
         remaining_links = list(session.exec(select(QuoteCaseExternalLink).where(QuoteCaseExternalLink.system_slug == 'heater_quote')).all())
         assert all(not link.external_id.startswith(f"{run_payload['id']}:") for link in remaining_links)
+
+
+def test_quote_case_heater_package_workspace_summarizes_attached_packages():
+    with Session(engine) as session:
+        case = create_quote_case(
+            session,
+            pipeline_slug='new_residential_services',
+            title='Heater workspace summary case',
+            requester_name='Workspace Owner',
+            requester_email='workspace@example.com',
+        )
+        run_payload = create_heater_quote_run(
+            session,
+            title='Workspace summary run',
+            quote_case_id=case.id,
+            direct_gallons=16000.0,
+            current_water_temp_f=72.0,
+            target_water_temp_f=84.0,
+            ambient_air_temp_f=78.0,
+            desired_heatup_hours=24.0,
+            heater_kind_preference='gas',
+            fuel_preference='auto',
+            unit_count=1,
+        )
+        attach_heater_candidate_to_quote_case(
+            session,
+            run_id=run_payload['id'],
+            candidate_id=run_payload['candidates'][0]['id'],
+            quote_case_id=case.id,
+            package_profile='gas_standard',
+            labor_profile='standard',
+        )
+        workspace = get_quote_case_heater_package_workspace(session, case.id)
+        assert workspace['package_count'] == 1
+        assert workspace['grand_total'] > 0
+        assert workspace['packages'][0]['package_summary']['line_count'] >= 1
+        assert workspace['packages'][0]['prepared_lines']
+
+
+def test_replace_existing_heater_package_keeps_only_new_attachment():
+    with Session(engine) as session:
+        from app.services.system_settings import set_setting
+
+        case = create_quote_case(
+            session,
+            pipeline_slug='new_residential_services',
+            title='Heater replace package case',
+            requester_name='Replace Owner',
+            requester_email='replace@example.com',
+        )
+        settings = {
+            'version': 'test',
+            'defaults': {'desired_heatup_hours': 24.0, 'unit_count': 1},
+            'sizing': {
+                'gallons_to_pounds': 8.34,
+                'heat_pump_surface_factor': 12.0,
+                'wind_rules': [{'minimum_mph': 0.0, 'multiplier': 1.0}],
+                'ideal_min_ratio': 0.85,
+                'ideal_max_ratio': 1.25,
+                'viable_min_ratio': 0.70,
+                'viable_max_ratio': 1.75,
+                'low_ambient_heat_pump_penalty': 20.0,
+                'low_ambient_threshold_f': 55.0,
+            },
+            'heritage': {
+                'sync_mode': 'dry_run',
+                'vendor_name': 'Heritage Pool Supply',
+                'fallback_catalog': [
+                    {
+                        'model_name': 'Test Heater A',
+                        'sku': f'HEAT-A-{case.id}',
+                        'heater_kind': 'gas',
+                        'fuel_type': 'natural_gas',
+                        'capacity_btu_per_hr': 250000.0,
+                        'price': 1800.0,
+                        'currency_code': 'USD',
+                    },
+                    {
+                        'model_name': 'Test Heater B',
+                        'sku': f'HEAT-B-{case.id}',
+                        'heater_kind': 'gas',
+                        'fuel_type': 'natural_gas',
+                        'capacity_btu_per_hr': 399000.0,
+                        'price': 2600.0,
+                        'currency_code': 'USD',
+                    },
+                ],
+            },
+        }
+        set_setting(session, 'heater_quote_config', settings, 'test heater quote config replace')
+        run_payload = create_heater_quote_run(
+            session,
+            title='Replace run',
+            quote_case_id=case.id,
+            direct_gallons=14000.0,
+            current_water_temp_f=72.0,
+            target_water_temp_f=84.0,
+            ambient_air_temp_f=78.0,
+            desired_heatup_hours=24.0,
+            heater_kind_preference='gas',
+            fuel_preference='auto',
+            unit_count=1,
+        )
+        first_candidate = run_payload['candidates'][0]['id']
+        second_candidate = run_payload['candidates'][1]['id']
+        attach_heater_candidate_to_quote_case(
+            session,
+            run_id=run_payload['id'],
+            candidate_id=first_candidate,
+            quote_case_id=case.id,
+        )
+        replace_result = attach_heater_candidate_to_quote_case(
+            session,
+            run_id=run_payload['id'],
+            candidate_id=second_candidate,
+            quote_case_id=case.id,
+            replace_existing=True,
+        )
+        assert replace_result['removed_existing_count'] == 1
+        workspace = get_quote_case_heater_package_workspace(session, case.id)
+        assert workspace['package_count'] == 1
+        assert workspace['packages'][0]['candidate']['model_name'] == 'Test Heater B'
+
+
+def test_remove_heater_package_from_quote_case_clears_workspace():
+    with Session(engine) as session:
+        case = create_quote_case(
+            session,
+            pipeline_slug='new_residential_services',
+            title='Heater remove package case',
+            requester_name='Remove Owner',
+            requester_email='remove@example.com',
+        )
+        run_payload = create_heater_quote_run(
+            session,
+            title='Remove package run',
+            quote_case_id=case.id,
+            direct_gallons=15000.0,
+            current_water_temp_f=74.0,
+            target_water_temp_f=84.0,
+            ambient_air_temp_f=80.0,
+            desired_heatup_hours=24.0,
+            heater_kind_preference='gas',
+            fuel_preference='auto',
+            unit_count=1,
+        )
+        attach_heater_candidate_to_quote_case(
+            session,
+            run_id=run_payload['id'],
+            candidate_id=run_payload['candidates'][0]['id'],
+            quote_case_id=case.id,
+        )
+        workspace = get_quote_case_heater_package_workspace(session, case.id)
+        link_id = workspace['packages'][0]['external_link_id']
+        remove_result = remove_heater_package_from_quote_case(session, quote_case_id=case.id, external_link_id=link_id)
+        assert remove_result['removed_external_link_id'] == link_id
+        assert remove_result['workspace']['package_count'] == 0

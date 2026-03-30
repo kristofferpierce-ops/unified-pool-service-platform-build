@@ -20,6 +20,7 @@ from app.services.heater_quote import (
     delete_heater_quote_run,
     get_heater_quote_dashboard_summary,
     get_heater_quote_settings,
+    get_quote_case_heater_package_workspace,
     list_heater_quote_runs,
     serialize_heater_quote_run,
 )
@@ -176,6 +177,13 @@ if current_run_id:
                 format_func=lambda value: next((f"{case.id} - {case.title}" for case in quote_cases if case.id == value), str(value)),
                 help='Choose the open quote case that should receive this heater recommendation as a linked equipment suggestion.',
             ) if quote_cases else None
+            replace_existing = st.checkbox('Replace existing heater packages on this quote case', value=False, help='Turn this on when you want this attachment to replace any previously attached heater package lines on the selected quote case.')
+            existing_workspace = {'package_count': 0, 'grand_total': 0.0, 'currency_code': 'USD', 'packages': []}
+            if attach_quote_case_id is not None:
+                with Session(engine) as session:
+                    existing_workspace = get_quote_case_heater_package_workspace(session, attach_quote_case_id)
+                if existing_workspace['package_count']:
+                    st.info(f"Quote case {attach_quote_case_id} already has {existing_workspace['package_count']} attached heater package(s) totaling {existing_workspace['grand_total']:,.2f} {existing_workspace['currency_code']}. Enable replacement if you want this new package to take over.")
             with Session(engine) as session:
                 try:
                     package_preview = build_heater_package_preview(
@@ -232,8 +240,13 @@ if current_run_id:
                                 include_startup_visit=include_startup_visit,
                                 misc_materials_amount=misc_materials_amount,
                                 labor_rate_override=labor_rate_override or None,
+                                replace_existing=replace_existing,
                             )
-                            st.success(f"Attached heater package to quote case {attach_result['quote_case']['id']}.")
+                            removed_count = int(attach_result.get('removed_existing_count') or 0)
+                            if removed_count:
+                                st.success(f"Replaced {removed_count} existing heater package(s) on quote case {attach_result['quote_case']['id']}.")
+                            else:
+                                st.success(f"Attached heater package to quote case {attach_result['quote_case']['id']}.")
                         except ValueError as exc:
                             st.error(str(exc))
         with info_col:
