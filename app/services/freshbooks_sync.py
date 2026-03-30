@@ -14,6 +14,7 @@ from sqlmodel import Session, select
 from app.connectors.freshbooks.client import FreshBooksAPIError, get_freshbooks_client, get_freshbooks_connection_status
 from app.connectors.freshbooks.contracts import FreshBooksSyncOperation, FreshBooksSyncResult
 from app.models.quote_tables import QuoteCase, QuoteCaseExternalLink
+from app.services.heater_quote import list_quote_case_heater_package_lines
 from app.services.quote_workflow import (
     get_pipeline_config,
     get_quote_case,
@@ -26,13 +27,6 @@ from app.services.quote_workflow import (
 )
 from app.services.system_settings import get_setting, set_setting
 from app.utils.serialization import dumps, loads
-
-def _safe_payload_load(blob: str | None) -> dict[str, Any]:
-    if not blob:
-        return {}
-    loaded = loads(blob, {})
-    return loaded if isinstance(loaded, dict) else {}
-
 
 FRESHBOOKS_SYNC_SETTING_KEY = 'freshbooks_sync_config'
 FRESHBOOKS_WEBHOOK_VERIFIER_KEY = 'freshbooks_webhook_verifier'
@@ -48,6 +42,13 @@ def _utcnow() -> datetime:
 
 def _casefold(value: str | None) -> str:
     return (value or '').strip().casefold()
+
+
+def _safe_payload_load(blob: str | None) -> dict[str, Any]:
+    if not blob:
+        return {}
+    loaded = loads(blob, {})
+    return loaded if isinstance(loaded, dict) else {}
 
 
 def _split_name(value: str) -> tuple[str, str]:
@@ -294,11 +295,15 @@ def _build_default_estimate_lines(case: QuoteCase, currency_code: str) -> list[d
     ]
 
 
-def _normalize_lines(lines: list[dict[str, Any]] | None, currency_code: str, case: QuoteCase) -> list[dict[str, Any]]:
-    if not lines:
-        return _build_default_estimate_lines(case, currency_code)
+def _normalize_lines(session: Session, lines: list[dict[str, Any]] | None, currency_code: str, case: QuoteCase) -> list[dict[str, Any]]:
+    source_lines: list[dict[str, Any]]
+    if lines:
+        source_lines = lines
+    else:
+        attached_lines = list_quote_case_heater_package_lines(session, case.id)
+        source_lines = attached_lines if attached_lines else _build_default_estimate_lines(case, currency_code)
     normalized: list[dict[str, Any]] = []
-    for item in lines:
+    for item in source_lines:
         amount_code = item.get('code') or item.get('currency_code') or currency_code
         unit_cost = item.get('unit_cost', item.get('unit_amount', item.get('amount', '0.00')))
         if isinstance(unit_cost, dict):
@@ -435,7 +440,7 @@ def sync_quote_case_to_freshbooks(
     resolved_currency_code = (currency_code or pipeline_settings.get('default_currency_code') or 'USD').strip() or 'USD'
     resolved_terms = terms if terms != '' else str(pipeline_settings.get('default_terms', ''))
     resolved_notes = notes if notes != '' else str(pipeline_settings.get('default_notes', ''))
-    normalized_lines = _normalize_lines(lines, resolved_currency_code, case)
+    normalized_lines = _normalize_lines(session, lines, resolved_currency_code, case)
 
     client_link = _get_freshbooks_link(session, quote_case_id, 'client')
     estimate_link = _get_freshbooks_link(session, quote_case_id, 'estimate')

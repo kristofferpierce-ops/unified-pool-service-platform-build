@@ -6,12 +6,13 @@ import hmac
 import json
 
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.api.main import app
 from app.core.database import engine
 from app.services.freshbooks_sync import get_freshbooks_sync_settings
 from app.services.system_settings import set_setting
+from app.services.heater_quote import attach_heater_candidate_to_quote_case, create_heater_quote_run
 
 
 client = TestClient(app)
@@ -213,3 +214,73 @@ def test_freshbooks_webhook_verifier_and_reconcile_round_trip():
     )
     assert webhook_response.status_code == 200
     assert created['id'] in webhook_response.json()['updated_case_ids']
+
+
+def test_freshbooks_draft_uses_attached_heater_package_lines_when_no_manual_lines():
+    _set_freshbooks_mode('dry_run')
+    create_response = client.post(
+        '/quote-workflow/cases',
+        json={
+            'pipeline_slug': 'new_residential_services',
+            'title': 'FreshBooks heater package case',
+            'requester_name': 'Package Client',
+            'requester_email': 'package@example.com',
+        },
+    )
+    assert create_response.status_code == 200
+    created = create_response.json()
+
+    with Session(engine) as session:
+        run_payload = create_heater_quote_run(
+            session,
+            title='FreshBooks package run',
+            quote_case_id=created['id'],
+            direct_gallons=18000.0,
+            current_water_temp_f=72.0,
+            target_water_temp_f=84.0,
+            ambient_air_temp_f=78.0,
+            desired_heatup_hours=24.0,
+            wind_mph=0.0,
+            covered=False,
+            heater_kind_preference='gas',
+            fuel_preference='auto',
+            unit_count=2,
+        )
+        attach_heater_candidate_to_quote_case(
+            session,
+            run_id=run_payload['id'],
+            candidate_id=run_payload['candidates'][0]['id'],
+            quote_case_id=created['id'],
+            package_profile='gas_standard',
+            labor_profile='standard',
+            include_automation_integration=True,
+            misc_materials_amount=125.0,
+        )
+
+    draft_response = client.post(
+        f"/quote-workflow/cases/{created['id']}/freshbooks/draft",
+        json={
+            'note': 'Use attached heater package lines',
+            'force_live': False,
+            'currency_code': 'USD',
+            'organization': 'Package HOA',
+        },
+    )
+    assert draft_response.status_code == 200
+
+    with Session(engine) as session:
+        from app.models.quote_tables import QuoteCaseExternalLink
+        estimate_link = session.exec(
+            select(QuoteCaseExternalLink).where(
+                QuoteCaseExternalLink.quote_case_id == created['id'],
+                QuoteCaseExternalLink.system_slug == 'freshbooks',
+                QuoteCaseExternalLink.external_type == 'estimate',
+            )
+        ).first()
+        assert estimate_link is not None
+        payload = json.loads(estimate_link.payload_json)
+        estimate = payload.get('estimate', {})
+        line_names = {line.get('name') for line in estimate.get('lines', [])}
+        assert any('Heater' in (name or '') for name in line_names)
+        assert any('Labor' in (name or '') for name in line_names)
+

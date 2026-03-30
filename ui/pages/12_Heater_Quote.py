@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
-from html import escape
-from urllib.parse import quote
 
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 from sqlmodel import Session
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -19,6 +15,7 @@ from app.core.database import create_db_and_tables, engine
 from app.services.bootstrap import seed_defaults
 from app.services.heater_quote import (
     attach_heater_candidate_to_quote_case,
+    build_heater_package_preview,
     create_heater_quote_run,
     delete_heater_quote_run,
     get_heater_quote_dashboard_summary,
@@ -27,118 +24,6 @@ from app.services.heater_quote import (
     serialize_heater_quote_run,
 )
 from app.services.quote_workflow import list_quote_cases
-
-
-
-def _format_optional_currency(value: object, currency_code: str = 'USD') -> str:
-    if value in (None, '', 'None'):
-        return ''
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return str(value)
-    symbol = '$' if currency_code == 'USD' else ''
-    return f"{symbol}{numeric:,.0f} {currency_code}".strip()
-
-
-def _format_optional_number(value: object, decimals: int = 0) -> str:
-    if value in (None, '', 'None'):
-        return ''
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return str(value)
-    return f"{numeric:,.{decimals}f}"
-
-
-def _build_printable_heater_report_html(run_payload: dict) -> str:
-    summary = run_payload.get('summary', {}) or {}
-    candidates = run_payload.get('candidates', []) or []
-    notes = run_payload.get('notes', []) or []
-    title = escape(run_payload.get('title') or f"Heater Quote Run #{run_payload.get('id', '')}")
-    source_label = escape(str(run_payload.get('source_mode', 'fallback_catalog')))
-    recommendation_note = escape(str(summary.get('recommendation_note', '')))
-
-    table_rows: list[str] = []
-    for candidate in candidates:
-        payload = candidate.get('payload') or {}
-        per_unit_btu = payload.get('per_unit_capacity_btu_per_hr', candidate.get('capacity_btu_per_hr'))
-        package_btu = candidate.get('capacity_btu_per_hr')
-        est_hours = candidate.get('estimated_heatup_hours')
-        table_rows.append(
-            '<tr>'
-            + f"<td>{escape(str(candidate.get('rank_order', '')))}</td>"
-            + f"<td>{escape(str(candidate.get('recommendation_band', 'review')))}</td>"
-            + f"<td>{escape(str(candidate.get('brand_name', '')))}</td>"
-            + f"<td>{escape(str(candidate.get('model_name', '')))}</td>"
-            + f"<td>{escape(str(candidate.get('sku', '')))}</td>"
-            + f"<td>{escape(str(candidate.get('heater_kind', '')))}</td>"
-            + f"<td>{escape(str(candidate.get('fuel_type', '')))}</td>"
-            + f"<td>{escape(str(candidate.get('unit_count', summary.get('unit_count', 1))))}</td>"
-            + f"<td>{escape(_format_optional_number(per_unit_btu, 0))}</td>"
-            + f"<td>{escape(_format_optional_number(package_btu, 0))}</td>"
-            + f"<td>{escape(_format_optional_number(est_hours, 1))}</td>"
-            + f"<td>{escape(_format_optional_currency(payload.get('per_unit_price'), candidate.get('currency_code') or 'USD'))}</td>"
-            + f"<td>{escape(_format_optional_currency(candidate.get('price'), candidate.get('currency_code') or 'USD'))}</td>"
-            + f"<td>{escape(str(candidate.get('availability_status', '')))}</td>"
-            + '</tr>'
-        )
-
-    notes_html = ''.join(f"<li>{escape(str(note))}</li>" for note in notes) or '<li>No additional notes recorded.</li>'
-    rows_html = ''.join(table_rows) or '<tr><td colspan="14">No candidates were returned for this run.</td></tr>'
-
-    return f"""<!doctype html>
-<html>
-<head>
-<meta charset='utf-8'>
-<title>{title}</title>
-<style>
-  body {{ font-family: Arial, sans-serif; margin: 24px; color: #111827; }}
-  h1, h2 {{ margin-bottom: 8px; }}
-  .meta {{ color: #4b5563; margin-bottom: 18px; }}
-  .summary-grid {{ display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 12px; margin: 18px 0; }}
-  .card {{ border: 1px solid #d1d5db; border-radius: 10px; padding: 12px; }}
-  .label {{ font-size: 12px; color: #6b7280; text-transform: uppercase; }}
-  .value {{ font-size: 20px; font-weight: 700; margin-top: 4px; }}
-  table {{ width: 100%; border-collapse: collapse; margin-top: 16px; }}
-  th, td {{ border: 1px solid #d1d5db; padding: 8px; font-size: 12px; text-align: left; }}
-  th {{ background: #f3f4f6; }}
-  .note-box {{ background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; margin-top: 16px; }}
-  @media print {{
-    body {{ margin: 12px; }}
-    .page-break-avoid {{ break-inside: avoid; }}
-  }}
-</style>
-</head>
-<body>
-  <h1>{title}</h1>
-  <div class='meta'>Generated from the Heater Quote Tool - Source mode: {source_label}</div>
-  <div class='summary-grid page-break-avoid'>
-    <div class='card'><div class='label'>Gallons</div><div class='value'>{_format_optional_number(summary.get('volume_gallons', 0), 0)}</div></div>
-    <div class='card'><div class='label'>Temperature Rise</div><div class='value'>{_format_optional_number(summary.get('temperature_rise_f', 0), 1)} F</div></div>
-    <div class='card'><div class='label'>Recommended BTU/hr</div><div class='value'>{_format_optional_number(summary.get('recommended_btu_per_hr', 0), 0)}</div></div>
-    <div class='card'><div class='label'>Total BTUs Required</div><div class='value'>{_format_optional_number(summary.get('total_btu_required', 0), 0)}</div></div>
-    <div class='card'><div class='label'>Desired Heat-up Hours</div><div class='value'>{_format_optional_number(summary.get('desired_heatup_hours', 0), 1)}</div></div>
-    <div class='card'><div class='label'>Units</div><div class='value'>{int(summary.get('unit_count', 1) or 1)}</div></div>
-  </div>
-  <div class='note-box page-break-avoid'><strong>Recommendation note:</strong> {recommendation_note}</div>
-  <h2>Recommended heater models</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Rank</th><th>Band</th><th>Brand</th><th>Model</th><th>SKU</th><th>Kind</th><th>Fuel</th><th>Units</th><th>Per Unit BTU/hr</th><th>Package BTU/hr</th><th>Est. Heat-up Hours</th><th>Per Unit Price</th><th>Package Price</th><th>Availability</th>
-      </tr>
-    </thead>
-    <tbody>{rows_html}</tbody>
-  </table>
-  <div class='note-box'><strong>Tool notes</strong><ul>{notes_html}</ul></div>
-</body>
-</html>"""
-
-
-def _build_printable_heater_report_url(html_text: str) -> str:
-    return "data:text/html;charset=utf-8," + quote(html_text, safe="")
-
 
 st.set_page_config(page_title='Heater Quote Tool', layout='wide')
 
@@ -264,29 +149,69 @@ if current_run_id:
                 'Branch': candidate.get('branch_name'),
                 'Fit Score': candidate.get('fit_score'),
             })
-        candidates_df = pd.DataFrame(display_rows)
-        st.dataframe(candidates_df, width='stretch')
-
-        report_html = _build_printable_heater_report_html(run_payload)
-        st.download_button(
-            'Download printable heater report (HTML)',
-            data=report_html,
-            file_name=f"heater_quote_run_{current_run_id}.html",
-            mime='text/html',
-            help='Download the same printer-friendly heater recommendation report as an HTML file you can save or print later.',
-        )
+        st.dataframe(pd.DataFrame(display_rows), width='stretch')
 
         attach_col, info_col = st.columns([1, 1])
         with attach_col:
             selectable_candidates = {f"#{candidate['rank_order']} {candidate['model_name']} ({candidate.get('recommendation_band', 'review')})": candidate['id'] for candidate in candidates}
             selected_candidate_label = st.selectbox('Candidate to attach', options=list(selectable_candidates.keys()), help='Choose which heater recommendation you want to attach to a quote case.')
+            package_profile_options = ['auto'] + list((heater_settings.get('package_profiles') or {}).keys())
+            selected_package_profile = st.selectbox('Install package profile', options=package_profile_options, help='Choose the install package template used to build equipment, materials, and labor lines for the quote.')
+            labor_profile_options = list((heater_settings.get('labor_profiles') or {}).keys()) or ['standard']
+            selected_labor_profile = st.selectbox('Labor profile', options=labor_profile_options, help='Choose the labor profile used to build the install labor line for the heater package.')
+            option_left, option_right = st.columns(2)
+            with option_left:
+                include_bypass_kit = st.checkbox('Include bypass / union kit', value=True, help='Include plumbing bypass materials and unions in the heater package preview.')
+                include_pad_kit = st.checkbox('Include equipment pad / stand', value=True, help='Include a pad, stand, or base materials allowance in the heater package preview.')
+                include_startup_visit = st.checkbox('Include startup and commissioning', value=True, help='Include a final startup and commissioning visit line item in the package preview.')
+            with option_right:
+                include_gas_allowance = st.checkbox('Include gas allowance', value=summary.get('preferred_heater_kind') == 'gas', help='Include a gas tie-in allowance when the install requires gas piping work.')
+                include_electrical_allowance = st.checkbox('Include electrical allowance', value=summary.get('preferred_heater_kind') != 'gas', help='Include an electrical allowance when the install requires disconnect, whip, or breaker work.')
+                include_automation_integration = st.checkbox('Include automation integration', value=False, help='Include a control integration allowance when the heater should tie into automation.')
+            misc_materials_amount = st.number_input('Additional materials allowance', min_value=0.0, value=0.0, step=25.0, help='Add a field-adjustable allowance for miscellaneous materials on top of the package template.')
+            labor_rate_override = st.number_input('Labor rate override', min_value=0.0, value=0.0, step=5.0, help='Leave at zero to use the selected labor profile rate. Use a real value to override the labor rate for this package preview.')
             attach_quote_case_id = st.selectbox(
                 'Quote case to attach to',
                 options=[case.id for case in quote_cases] if quote_cases else [],
                 format_func=lambda value: next((f"{case.id} - {case.title}" for case in quote_cases if case.id == value), str(value)),
                 help='Choose the open quote case that should receive this heater recommendation as a linked equipment suggestion.',
             ) if quote_cases else None
-            if st.button('Attach selected heater to quote case', help='Click to attach the selected heater recommendation to the chosen quote case using the quote workflow external-link ledger.'):
+            with Session(engine) as session:
+                try:
+                    package_preview = build_heater_package_preview(
+                        session,
+                        run_id=current_run_id,
+                        candidate_id=selectable_candidates[selected_candidate_label],
+                        package_profile=selected_package_profile,
+                        labor_profile=selected_labor_profile,
+                        include_bypass_kit=include_bypass_kit,
+                        include_pad_kit=include_pad_kit,
+                        include_gas_allowance=include_gas_allowance,
+                        include_electrical_allowance=include_electrical_allowance,
+                        include_automation_integration=include_automation_integration,
+                        include_startup_visit=include_startup_visit,
+                        misc_materials_amount=misc_materials_amount,
+                        labor_rate_override=labor_rate_override or None,
+                    )
+                except ValueError as exc:
+                    package_preview = None
+                    st.error(str(exc))
+            if package_preview:
+                st.write('**Package preview**')
+                package_rows = [
+                    {
+                        'Name': line.get('name'),
+                        'Description': line.get('description'),
+                        'Qty': line.get('qty'),
+                        'Unit Price': line.get('amount'),
+                        'Currency': line.get('code'),
+                        'Category': line.get('category', ''),
+                    }
+                    for line in package_preview.get('lines', [])
+                ]
+                st.dataframe(pd.DataFrame(package_rows), width='stretch')
+                st.metric('Package Total', f"{package_preview.get('package_total', 0):,.2f} {package_preview.get('currency_code', 'USD')}", help='Total value of the equipment, materials, allowances, and labor lines that will attach to the quote case.')
+            if st.button('Attach selected heater package to quote case', help='Attach the selected heater package lines to the chosen quote case so they can flow into the quote workflow and FreshBooks draft creation.'):
                 if attach_quote_case_id is None:
                     st.error('Create or keep an open quote case first, then return here to attach the heater recommendation.')
                 else:
@@ -297,8 +222,18 @@ if current_run_id:
                                 run_id=current_run_id,
                                 candidate_id=selectable_candidates[selected_candidate_label],
                                 quote_case_id=attach_quote_case_id,
+                                package_profile=selected_package_profile,
+                                labor_profile=selected_labor_profile,
+                                include_bypass_kit=include_bypass_kit,
+                                include_pad_kit=include_pad_kit,
+                                include_gas_allowance=include_gas_allowance,
+                                include_electrical_allowance=include_electrical_allowance,
+                                include_automation_integration=include_automation_integration,
+                                include_startup_visit=include_startup_visit,
+                                misc_materials_amount=misc_materials_amount,
+                                labor_rate_override=labor_rate_override or None,
                             )
-                            st.success(f"Attached heater recommendation to quote case {attach_result['quote_case']['id']}.")
+                            st.success(f"Attached heater package to quote case {attach_result['quote_case']['id']}.")
                         except ValueError as exc:
                             st.error(str(exc))
         with info_col:
@@ -309,6 +244,8 @@ if current_run_id:
                 st.write(f'- {note}')
             st.write('**Why these candidates are ranked this way**')
             st.write('Candidates are scored by how close they are to the recommended BTU per hour target. The tool boosts the score when the candidate matches the preferred heater type and mildly penalizes heat pumps in cooler ambient conditions.')
+            st.write('**Quote workflow behavior**')
+            st.write('Attached heater packages now store prepared equipment, materials, allowance, and labor lines on the quote case. If a FreshBooks draft is created without manual lines, the draft service will use the attached heater package lines automatically.')
     else:
         st.warning('No heater candidates were returned. The tool should normally fall back to the starter planning catalog now, so this usually means the heater quote setting was overwritten with an empty catalog or the run needs to be recalculated.')
 
