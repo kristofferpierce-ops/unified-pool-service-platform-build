@@ -4,6 +4,7 @@ import json
 import sys
 from pathlib import Path
 from html import escape
+from urllib.parse import quote
 
 import pandas as pd
 import streamlit as st
@@ -135,24 +136,9 @@ def _build_printable_heater_report_html(run_payload: dict) -> str:
 </html>"""
 
 
-def _trigger_print_dialog(html_text: str) -> None:
-    payload = json.dumps(html_text)
-    components.html(
-        f"""
-        <script>
-        const printableHtml = {payload};
-        const printWindow = window.open('', '_blank');
-        if (printWindow) {{
-            printWindow.document.open();
-            printWindow.document.write(printableHtml);
-            printWindow.document.close();
-            printWindow.focus();
-            setTimeout(() => printWindow.print(), 250);
-        }}
-        </script>
-        """,
-        height=0,
-    )
+def _build_printable_heater_report_url(html_text: str) -> str:
+    return "data:text/html;charset=utf-8," + quote(html_text, safe="")
+
 
 st.set_page_config(page_title='Heater Quote Tool', layout='wide')
 
@@ -282,18 +268,13 @@ if current_run_id:
         st.dataframe(candidates_df, width='stretch')
 
         report_html = _build_printable_heater_report_html(run_payload)
-        print_col, html_col = st.columns([1, 1])
-        with print_col:
-            if st.button('Print suggested heater report', help='Open a printer-friendly report showing the recommended heater models and sizing summary for this run.'):
-                _trigger_print_dialog(report_html)
-        with html_col:
-            st.download_button(
-                'Download printable heater report (HTML)',
-                data=report_html,
-                file_name=f"heater_quote_run_{current_run_id}.html",
-                mime='text/html',
-                help='Download the same printer-friendly heater recommendation report as an HTML file you can save or print later.',
-            )
+        st.download_button(
+            'Download printable heater report (HTML)',
+            data=report_html,
+            file_name=f"heater_quote_run_{current_run_id}.html",
+            mime='text/html',
+            help='Download the same printer-friendly heater recommendation report as an HTML file you can save or print later.',
+        )
 
         attach_col, info_col = st.columns([1, 1])
         with attach_col:
