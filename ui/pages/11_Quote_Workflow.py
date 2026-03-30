@@ -30,7 +30,7 @@ from app.services.freshbooks_sync import (
     refresh_quote_case_from_freshbooks,
     sync_quote_case_to_freshbooks,
 )
-from app.services.heater_quote import get_quote_case_heater_package_workspace, remove_heater_package_from_quote_case, reset_heater_package_lines, update_heater_package_lines
+from app.services.heater_quote import apply_equipment_package_template_to_quote_case, delete_equipment_package_template, get_equipment_package_template_summary, get_quote_case_heater_package_workspace, list_equipment_package_templates, remove_heater_package_from_quote_case, reset_heater_package_lines, save_heater_package_template, update_heater_package_lines
 from app.services.quote_workflow import (
     create_quote_case,
     get_dashboard_summary,
@@ -52,12 +52,15 @@ with Session(engine) as session:
     dashboard = get_dashboard_summary(session)
     lacrm_summary = get_lacrm_mapping_summary(session)
     freshbooks_summary = get_freshbooks_mapping_summary(session)
+    equipment_template_summary = get_equipment_package_template_summary(session)
+    heater_package_templates = list_equipment_package_templates(session, package_kind='heater')
 
 pipeline_options = workflow_config.get('pipelines', [])
 pipeline_lookup = {item['slug']: item for item in pipeline_options}
 
 st.title('Quote Workflow')
 st.caption('Create quote cases, move them across the mirrored CRM buckets, link them to the correct CRM contact, and prepare or run CRM sync from one place.')
+st.info(f"Reusable equipment package templates available: {equipment_template_summary['template_count']}", icon='🧰')
 
 summary_a, summary_b, summary_c, summary_d, summary_e, summary_f = st.columns(6)
 summary_a.metric('Open Cases', dashboard['totals']['open_cases'], help='Cases that are not in a closed stage.')
@@ -252,9 +255,42 @@ else:
                 help='Total of all attached equipment, material, allowance, and labor package lines currently linked to this quote case.',
             )
 
+
+
             with st.expander(f"Attached equipment packages for {case['quote_number']}", expanded=False):
+                template_left, template_mid, template_right = st.columns([3, 1, 1])
+                if heater_package_templates:
+                    selected_template_slug = template_left.selectbox(
+                        'Apply saved equipment package template',
+                        options=[item['template_slug'] for item in heater_package_templates],
+                        format_func=lambda slug, items={item['template_slug']: item for item in heater_package_templates}: items[slug]['template_name'],
+                        key=f"apply_heater_template_{case['id']}",
+                        help='Choose a saved heater package template to attach to this quote case.',
+                    )
+                    replace_existing_templates = template_mid.checkbox(
+                        'Replace current heater packages',
+                        key=f"replace_template_attach_{case['id']}",
+                        help='Remove current heater packages on this quote case before applying the selected template.',
+                    )
+                    if template_right.button('Apply template', key=f"apply_template_button_{case['id']}", help='Attach the selected saved equipment package template to this quote case.'):
+                        with Session(engine) as session:
+                            try:
+                                apply_equipment_package_template_to_quote_case(
+                                    session,
+                                    template_slug=selected_template_slug,
+                                    quote_case_id=case['id'],
+                                    attached_by='streamlit_operator',
+                                    replace_existing=replace_existing_templates,
+                                )
+                                st.success('Equipment package template applied.')
+                            except ValueError as exc:
+                                st.error(str(exc))
+                        st.rerun()
+                else:
+                    st.caption('No saved equipment package templates exist yet. Save one from an attached package below to reuse it later.')
+
                 if not heater_package_workspace['packages']:
-                    st.caption('No equipment packages are attached yet. Use the Heater Quote Tool to attach a package, or replace an existing package from there later.')
+                    st.caption('No equipment packages are attached yet. Use the Heater Quote Tool to attach a package, or apply a saved template here later.')
                 else:
                     st.caption(f"Use the Heater Quote Tool with quote case {case['id']} if you want to replace the current package set.")
                     for package in heater_package_workspace['packages']:
@@ -265,6 +301,39 @@ else:
                         head_left.caption(f"SKU: {pkg_candidate.get('sku', 'Unknown')} | Units: {pkg_candidate.get('unit_count', 1)} | Attached by: {package.get('attached_by') or 'operator'}")
                         head_mid.write(f"**Profile:** {pkg_summary.get('package_profile', 'auto')} / {pkg_summary.get('labor_profile', 'standard')}")
                         head_mid.write(f"**Totals:** Equipment {pkg_summary.get('equipment_total', 0):,.2f} | Labor {pkg_summary.get('labor_total', 0):,.2f} | Materials {pkg_summary.get('materials_total', 0):,.2f}")
+                        template_name_value = st.text_input(
+                            'Template name',
+                            value=(f"{pkg_candidate.get('brand_name', '').strip()} {pkg_candidate.get('model_name', package.get('external_label', 'Heater package')).strip()}".strip() or 'Heater package template'),
+                            key=f"heater_template_name_{case['id']}_{package['external_link_id']}",
+                            help='Name to save this attached equipment package as a reusable template for future quotes.',
+                        )
+                        action_left, action_right = st.columns([1, 1])
+                        if action_left.button('Save as template', key=f"save_heater_template_{case['id']}_{package['external_link_id']}", help='Save this attached heater package as a reusable equipment package template for future quote cases.'):
+                            with Session(engine) as session:
+                                try:
+                                    save_heater_package_template(
+                                        session,
+                                        quote_case_id=case['id'],
+                                        external_link_id=package['external_link_id'],
+                                        template_name=template_name_value,
+                                        saved_by='streamlit_operator',
+                                    )
+                                    st.success('Equipment package template saved.')
+                                except ValueError as exc:
+                                    st.error(str(exc))
+                            st.rerun()
+                        if action_right.button('Delete template match', key=f"delete_matching_template_{case['id']}_{package['external_link_id']}", help='Delete a saved template with this same name if it exists. This does not affect the attached package on the quote case.'):
+                            matching = next((item for item in heater_package_templates if item['template_name'] == template_name_value), None)
+                            if not matching:
+                                st.warning('No saved template with that name exists yet.')
+                            else:
+                                with Session(engine) as session:
+                                    try:
+                                        delete_equipment_package_template(session, matching['template_slug'])
+                                        st.success('Saved equipment package template deleted.')
+                                    except ValueError as exc:
+                                        st.error(str(exc))
+                                st.rerun()
                         if head_right.button('Remove package', key=f"remove_heater_package_{case['id']}_{package['external_link_id']}", help='Remove this attached equipment package from the quote case. This does not delete the saved heater sizing run itself.'):
                             with Session(engine) as session:
                                 try:
@@ -346,7 +415,6 @@ else:
                                         st.error(str(exc))
                                 st.rerun()
                         st.divider()
-
             move_cols = st.columns([3, 2, 1])
             target_stage_slug = move_cols[0].selectbox(
                 f"Move {case['quote_number']} to",

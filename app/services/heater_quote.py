@@ -154,7 +154,206 @@ DEFAULT_HEATER_QUOTE_CONFIG: dict[str, Any] = {
         ],
         'notes': 'Live Heritage pricing needs a normalized catalog feed or configured catalog URL plus account id and API key. Until then, the tool uses a starter planning catalog so the module still returns recommendation bands instead of an empty result.',
     },
+
 }
+
+
+DEFAULT_EQUIPMENT_PACKAGE_TEMPLATE_CONFIG: dict[str, Any] = {
+    'version': 'platform_block_2d_equipment_package_templates',
+    'templates': [],
+}
+
+
+def _slugify_template_name(value: str) -> str:
+    slug = ''.join(ch.lower() if ch.isalnum() else '-' for ch in str(value or '').strip())
+    while '--' in slug:
+        slug = slug.replace('--', '-')
+    return slug.strip('-') or 'equipment-package'
+
+
+def _ensure_equipment_package_template_settings(session: Session) -> dict[str, Any]:
+    existing = get_setting(session, 'equipment_package_templates')
+    if not isinstance(existing, dict):
+        existing = {}
+    templates = existing.get('templates') if isinstance(existing.get('templates'), list) else []
+    normalized = {
+        'version': DEFAULT_EQUIPMENT_PACKAGE_TEMPLATE_CONFIG['version'],
+        'templates': [item for item in templates if isinstance(item, dict)],
+    }
+    if existing != normalized:
+        set_setting(
+            session,
+            'equipment_package_templates',
+            normalized,
+            'Reusable equipment package templates saved from attached quote packages and later applied back into quote cases.',
+        )
+    return normalized
+
+
+def _get_equipment_package_templates(session: Session) -> list[dict[str, Any]]:
+    settings = _ensure_equipment_package_template_settings(session)
+    templates = settings.get('templates') if isinstance(settings.get('templates'), list) else []
+    return [item for item in templates if isinstance(item, dict)]
+
+
+def list_equipment_package_templates(session: Session, package_kind: str | None = None) -> list[dict[str, Any]]:
+    templates = _get_equipment_package_templates(session)
+    if package_kind:
+        templates = [item for item in templates if str(item.get('package_kind') or '') == package_kind]
+    return sorted(templates, key=lambda item: (str(item.get('template_name') or '').lower(), str(item.get('template_slug') or '').lower()))
+
+
+def get_equipment_package_template_summary(session: Session) -> dict[str, Any]:
+    templates = _get_equipment_package_templates(session)
+    by_kind: dict[str, int] = {}
+    for item in templates:
+        kind = str(item.get('package_kind') or 'unknown')
+        by_kind[kind] = by_kind.get(kind, 0) + 1
+    return {
+        'template_count': len(templates),
+        'by_kind': by_kind,
+        'templates': list_equipment_package_templates(session),
+    }
+
+
+def _next_available_template_slug(existing_templates: list[dict[str, Any]], base_slug: str) -> str:
+    taken = {str(item.get('template_slug') or '') for item in existing_templates}
+    if base_slug not in taken:
+        return base_slug
+    index = 2
+    while f'{base_slug}-{index}' in taken:
+        index += 1
+    return f'{base_slug}-{index}'
+
+
+def save_heater_package_template(
+    session: Session,
+    *,
+    quote_case_id: int,
+    external_link_id: int,
+    template_name: str,
+    saved_by: str = 'operator',
+) -> dict[str, Any]:
+    case = get_quote_case(session, quote_case_id)
+    if case is None:
+        raise ValueError('Quote case not found')
+    link = session.get(QuoteCaseExternalLink, external_link_id)
+    if link is None or link.quote_case_id != quote_case_id or link.system_slug != 'heater_quote':
+        raise ValueError('Attached heater package not found')
+    serialized = _serialize_heater_package_link(link)
+    existing = _get_equipment_package_templates(session)
+    template_slug = _next_available_template_slug(existing, _slugify_template_name(template_name or serialized.get('external_label') or 'heater-package'))
+    now_iso = datetime.utcnow().isoformat()
+    template = {
+        'template_slug': template_slug,
+        'template_name': str(template_name or serialized.get('external_label') or 'Heater package template').strip(),
+        'package_kind': 'heater',
+        'saved_by': saved_by,
+        'created_at': now_iso,
+        'updated_at': now_iso,
+        'source_quote_case_id': quote_case_id,
+        'source_external_link_id': external_link_id,
+        'candidate': serialized.get('candidate', {}),
+        'package_summary': serialized.get('package_summary', {}),
+        'prepared_lines': serialized.get('prepared_lines', []),
+        'original_prepared_lines': serialized.get('original_prepared_lines', serialized.get('prepared_lines', [])),
+    }
+    templates = existing + [template]
+    set_setting(
+        session,
+        'equipment_package_templates',
+        {'version': DEFAULT_EQUIPMENT_PACKAGE_TEMPLATE_CONFIG['version'], 'templates': templates},
+        'Reusable equipment package templates saved from attached quote packages and later applied back into quote cases.',
+    )
+    return {
+        'saved_template': template,
+        'template_summary': get_equipment_package_template_summary(session),
+    }
+
+
+def delete_equipment_package_template(session: Session, template_slug: str) -> dict[str, Any]:
+    templates = _get_equipment_package_templates(session)
+    remaining = [item for item in templates if str(item.get('template_slug') or '') != template_slug]
+    if len(remaining) == len(templates):
+        raise ValueError('Equipment package template not found')
+    set_setting(
+        session,
+        'equipment_package_templates',
+        {'version': DEFAULT_EQUIPMENT_PACKAGE_TEMPLATE_CONFIG['version'], 'templates': remaining},
+        'Reusable equipment package templates saved from attached quote packages and later applied back into quote cases.',
+    )
+    return {
+        'deleted_template_slug': template_slug,
+        'template_summary': get_equipment_package_template_summary(session),
+    }
+
+
+def apply_equipment_package_template_to_quote_case(
+    session: Session,
+    *,
+    template_slug: str,
+    quote_case_id: int,
+    attached_by: str = 'operator',
+    replace_existing: bool = False,
+) -> dict[str, Any]:
+    case = get_quote_case(session, quote_case_id)
+    if case is None:
+        raise ValueError('Quote case not found')
+    template = next((item for item in _get_equipment_package_templates(session) if str(item.get('template_slug') or '') == template_slug), None)
+    if template is None:
+        raise ValueError('Equipment package template not found')
+    if str(template.get('package_kind') or '') != 'heater':
+        raise ValueError('Only heater package templates are supported in this block.')
+
+    removed_existing_count = 0
+    if replace_existing:
+        existing_links = _list_quote_case_heater_links(session, quote_case_id)
+        removed_existing_count = len(existing_links)
+        for existing_link in existing_links:
+            session.delete(existing_link)
+        if existing_links:
+            session.commit()
+
+    package_summary = template.get('package_summary') if isinstance(template.get('package_summary'), dict) else {}
+    candidate = template.get('candidate') if isinstance(template.get('candidate'), dict) else {}
+    currency_code = str(package_summary.get('currency_code') or candidate.get('currency_code') or 'USD')
+    original_lines = template.get('original_prepared_lines') if isinstance(template.get('original_prepared_lines'), list) else template.get('prepared_lines')
+    prepared_lines = template.get('prepared_lines') if isinstance(template.get('prepared_lines'), list) else []
+    normalized_original = _normalize_package_lines(original_lines or prepared_lines, currency_code)
+    normalized_lines = _normalize_package_lines(prepared_lines or original_lines, currency_code)
+    package_summary = _summarize_package_lines(normalized_lines, package_summary, edited=bool(package_summary.get('edited')), edited_by=str(package_summary.get('edited_by') or attached_by))
+
+    link = add_external_link(
+        session,
+        quote_case_id=quote_case_id,
+        system_slug='heater_quote',
+        external_type='template',
+        external_id=f"template:{template_slug}:{quote_case_id}:{int(datetime.utcnow().timestamp())}",
+        external_label=str(template.get('template_name') or template_slug),
+        sync_direction='local_only',
+        sync_status='attached',
+        payload={
+            'attached_by': attached_by,
+            'template_slug': template_slug,
+            'template_name': template.get('template_name', ''),
+            'run_summary': {'source_mode': 'equipment_package_template'},
+            'candidate': candidate,
+            'package_summary': package_summary,
+            'prepared_line': normalized_lines[0] if normalized_lines else {},
+            'prepared_lines': normalized_lines,
+            'original_prepared_lines': normalized_original,
+            'original_package_summary': {**package_summary, 'edited': False},
+            'source_payload': {'template_slug': template_slug, 'package_kind': template.get('package_kind', 'heater')},
+        },
+    )
+    return {
+        'quote_case': serialize_quote_case(session, case),
+        'external_link': link.model_dump(),
+        'removed_existing_count': removed_existing_count,
+        'package_workspace': get_quote_case_heater_package_workspace(session, quote_case_id),
+        'applied_template': template,
+        'template_summary': get_equipment_package_template_summary(session),
+    }
 
 
 def _merge_heater_quote_config(config: dict[str, Any] | None) -> dict[str, Any]:
@@ -1210,5 +1409,6 @@ def get_heater_quote_dashboard_summary(session: Session) -> dict[str, Any]:
         },
         'recent_runs': [serialize_heater_quote_run(session, run.id, include_candidates=False) for run in runs[:10]],
         'attached_candidate_count': attached_candidate_count,
+        'template_summary': get_equipment_package_template_summary(session),
         'settings': config,
     }

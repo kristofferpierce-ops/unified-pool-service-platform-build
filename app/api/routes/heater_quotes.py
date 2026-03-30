@@ -6,15 +6,20 @@ from sqlmodel import Session
 
 from app.core.database import engine
 from app.services.heater_quote import (
+    apply_equipment_package_template_to_quote_case,
     attach_heater_candidate_to_quote_case,
     build_heater_package_preview,
     create_heater_quote_run,
+    delete_equipment_package_template,
     delete_heater_quote_run,
+    get_equipment_package_template_summary,
     get_heater_quote_dashboard_summary,
     get_heater_quote_settings,
     get_quote_case_heater_package_workspace,
+    list_equipment_package_templates,
     list_heater_quote_runs,
     reset_heater_package_lines,
+    save_heater_package_template,
     serialize_heater_quote_run,
     update_heater_package_lines,
 )
@@ -87,6 +92,20 @@ class HeaterPackageUpdateBody(BaseModel):
 
 class HeaterPackageResetBody(BaseModel):
     edited_by: str = 'operator'
+
+
+
+class SaveEquipmentPackageTemplateBody(BaseModel):
+    quote_case_id: int
+    external_link_id: int
+    template_name: str
+    saved_by: str = 'operator'
+
+
+class ApplyEquipmentPackageTemplateBody(BaseModel):
+    quote_case_id: int
+    attached_by: str = 'operator'
+    replace_existing: bool = False
 
 
 @router.get('/config')
@@ -238,6 +257,59 @@ def reset_heater_workspace_package(quote_case_id: int, external_link_id: int, bo
             status_code = 404 if 'not found' in message else 400
             raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
+
+
+
+@router.get('/templates')
+def heater_quote_templates(package_kind: str | None = None):
+    with Session(engine) as session:
+        return {
+            'templates': list_equipment_package_templates(session, package_kind=package_kind),
+            'summary': get_equipment_package_template_summary(session),
+        }
+
+
+@router.post('/templates/save')
+def save_equipment_package_template(body: SaveEquipmentPackageTemplateBody):
+    with Session(engine) as session:
+        try:
+            return save_heater_package_template(
+                session,
+                quote_case_id=body.quote_case_id,
+                external_link_id=body.external_link_id,
+                template_name=body.template_name,
+                saved_by=body.saved_by,
+            )
+        except ValueError as exc:
+            message = str(exc).lower()
+            status_code = 404 if 'not found' in message else 400
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
+@router.post('/templates/{template_slug}/apply')
+def apply_equipment_package_template(template_slug: str, body: ApplyEquipmentPackageTemplateBody):
+    with Session(engine) as session:
+        try:
+            return apply_equipment_package_template_to_quote_case(
+                session,
+                template_slug=template_slug,
+                quote_case_id=body.quote_case_id,
+                attached_by=body.attached_by,
+                replace_existing=body.replace_existing,
+            )
+        except ValueError as exc:
+            message = str(exc).lower()
+            status_code = 404 if 'not found' in message else 400
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
+@router.delete('/templates/{template_slug}')
+def delete_equipment_package_template_route(template_slug: str):
+    with Session(engine) as session:
+        try:
+            return delete_equipment_package_template(session, template_slug)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 @router.delete('/runs/{run_id}')
 def delete_heater_quote(run_id: int):

@@ -11,13 +11,18 @@ from app.services.heater_quote import (
     build_heater_package_preview,
     calculate_heater_requirements,
     create_heater_quote_run,
+    apply_equipment_package_template_to_quote_case,
+    delete_equipment_package_template,
     delete_heater_quote_run,
     ensure_heater_quote_settings,
+    get_equipment_package_template_summary,
     get_quote_case_heater_package_workspace,
+    list_equipment_package_templates,
     list_quote_case_heater_package_lines,
     rank_heater_candidates,
     remove_heater_package_from_quote_case,
     reset_heater_package_lines,
+    save_heater_package_template,
     update_heater_package_lines,
 )
 from app.services.quote_workflow import create_quote_case
@@ -525,3 +530,143 @@ def test_reset_heater_package_lines_restores_original_attachment_lines():
         assert workspace['packages'][0]['has_overrides'] is False
         restored_names = [line['name'] for line in workspace['packages'][0]['prepared_lines']]
         assert restored_names == original_names
+
+
+
+def test_save_heater_package_template_records_reusable_template():
+    with Session(engine) as session:
+        case = create_quote_case(
+            session,
+            pipeline_slug='new_residential_services',
+            title='Template save case',
+            requester_name='Template Saver',
+            requester_email='templates@example.com',
+        )
+        run_payload = create_heater_quote_run(
+            session,
+            title='Template save run',
+            quote_case_id=case.id,
+            direct_gallons=14500.0,
+            current_water_temp_f=72.0,
+            target_water_temp_f=84.0,
+            ambient_air_temp_f=80.0,
+            desired_heatup_hours=24.0,
+            heater_kind_preference='gas',
+            fuel_preference='auto',
+            unit_count=1,
+        )
+        attach_result = attach_heater_candidate_to_quote_case(
+            session,
+            run_id=run_payload['id'],
+            candidate_id=run_payload['candidates'][0]['id'],
+            quote_case_id=case.id,
+        )
+        saved = save_heater_package_template(
+            session,
+            quote_case_id=case.id,
+            external_link_id=attach_result['external_link']['id'],
+            template_name='Residential Gas Heater Standard',
+            saved_by='pytest',
+        )
+        assert saved['saved_template']['package_kind'] == 'heater'
+        assert saved['saved_template']['template_name'] == 'Residential Gas Heater Standard'
+        template_list = list_equipment_package_templates(session, package_kind='heater')
+        assert any(item['template_slug'] == saved['saved_template']['template_slug'] for item in template_list)
+
+
+
+def test_apply_saved_heater_package_template_to_quote_case_creates_attachment():
+    with Session(engine) as session:
+        source_case = create_quote_case(
+            session,
+            pipeline_slug='new_residential_services',
+            title='Template source case',
+            requester_name='Source Owner',
+            requester_email='source@example.com',
+        )
+        target_case = create_quote_case(
+            session,
+            pipeline_slug='new_residential_services',
+            title='Template target case',
+            requester_name='Target Owner',
+            requester_email='target@example.com',
+        )
+        run_payload = create_heater_quote_run(
+            session,
+            title='Template apply run',
+            quote_case_id=source_case.id,
+            direct_gallons=17000.0,
+            current_water_temp_f=70.0,
+            target_water_temp_f=84.0,
+            ambient_air_temp_f=79.0,
+            desired_heatup_hours=24.0,
+            heater_kind_preference='gas',
+            fuel_preference='auto',
+            unit_count=1,
+        )
+        attach_result = attach_heater_candidate_to_quote_case(
+            session,
+            run_id=run_payload['id'],
+            candidate_id=run_payload['candidates'][0]['id'],
+            quote_case_id=source_case.id,
+        )
+        saved = save_heater_package_template(
+            session,
+            quote_case_id=source_case.id,
+            external_link_id=attach_result['external_link']['id'],
+            template_name='Apply Me Heater Package',
+            saved_by='pytest',
+        )
+        applied = apply_equipment_package_template_to_quote_case(
+            session,
+            template_slug=saved['saved_template']['template_slug'],
+            quote_case_id=target_case.id,
+            attached_by='pytest',
+            replace_existing=False,
+        )
+        assert applied['external_link']['system_slug'] == 'heater_quote'
+        workspace = get_quote_case_heater_package_workspace(session, target_case.id)
+        assert workspace['package_count'] == 1
+        assert workspace['packages'][0]['external_label'] == 'Apply Me Heater Package'
+
+
+
+def test_delete_equipment_package_template_removes_saved_template():
+    with Session(engine) as session:
+        case = create_quote_case(
+            session,
+            pipeline_slug='new_residential_services',
+            title='Template delete case',
+            requester_name='Delete Template Owner',
+            requester_email='template-delete@example.com',
+        )
+        run_payload = create_heater_quote_run(
+            session,
+            title='Template delete run',
+            quote_case_id=case.id,
+            direct_gallons=15000.0,
+            current_water_temp_f=72.0,
+            target_water_temp_f=84.0,
+            ambient_air_temp_f=80.0,
+            desired_heatup_hours=24.0,
+            heater_kind_preference='gas',
+            fuel_preference='auto',
+            unit_count=1,
+        )
+        attach_result = attach_heater_candidate_to_quote_case(
+            session,
+            run_id=run_payload['id'],
+            candidate_id=run_payload['candidates'][0]['id'],
+            quote_case_id=case.id,
+        )
+        saved = save_heater_package_template(
+            session,
+            quote_case_id=case.id,
+            external_link_id=attach_result['external_link']['id'],
+            template_name='Delete Template',
+            saved_by='pytest',
+        )
+        result = delete_equipment_package_template(session, saved['saved_template']['template_slug'])
+        assert result['deleted_template_slug'] == saved['saved_template']['template_slug']
+        summary = get_equipment_package_template_summary(session)
+        assert all(item['template_slug'] != saved['saved_template']['template_slug'] for item in summary['templates'])
