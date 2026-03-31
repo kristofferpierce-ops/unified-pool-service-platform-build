@@ -30,7 +30,7 @@ from app.services.freshbooks_sync import (
     refresh_quote_case_from_freshbooks,
     sync_quote_case_to_freshbooks,
 )
-from app.services.heater_quote import apply_equipment_package_template_to_quote_case, delete_equipment_package_template, get_equipment_package_template_summary, get_quote_case_heater_package_workspace, list_equipment_package_templates, remove_heater_package_from_quote_case, reset_heater_package_lines, save_heater_package_template, update_heater_package_lines
+from app.services.heater_quote import apply_equipment_package_template_to_quote_case, create_manual_equipment_package_template, delete_equipment_package_template, get_equipment_package_template_summary, get_quote_case_equipment_package_workspace, list_equipment_package_templates, remove_heater_package_from_quote_case, reset_heater_package_lines, save_heater_package_template, update_heater_package_lines
 from app.services.quote_workflow import (
     create_quote_case,
     get_dashboard_summary,
@@ -53,7 +53,7 @@ with Session(engine) as session:
     lacrm_summary = get_lacrm_mapping_summary(session)
     freshbooks_summary = get_freshbooks_mapping_summary(session)
     equipment_template_summary = get_equipment_package_template_summary(session)
-    heater_package_templates = list_equipment_package_templates(session, package_kind='heater')
+    equipment_package_templates = list_equipment_package_templates(session)
 
 pipeline_options = workflow_config.get('pipelines', [])
 pipeline_lookup = {item['slug']: item for item in pipeline_options}
@@ -215,7 +215,7 @@ else:
             with Session(engine) as session:
                 lacrm_case_summary = get_case_lacrm_summary(session, case['id'])
                 freshbooks_case_summary = get_case_freshbooks_summary(session, case['id'])
-                heater_package_workspace = get_quote_case_heater_package_workspace(session, case['id'])
+                equipment_package_workspace = get_quote_case_equipment_package_workspace(session, case['id'])
 
             lacrm_links = lacrm_case_summary
             freshbooks_links = freshbooks_case_summary
@@ -246,31 +246,98 @@ else:
             package_metric_a, package_metric_b = st.columns(2)
             package_metric_a.metric(
                 'Attached Packages',
-                heater_package_workspace['package_count'],
+                equipment_package_workspace['package_count'],
                 help='How many equipment packages are currently attached to this quote case.',
             )
             package_metric_b.metric(
                 'Package Total',
-                f"{heater_package_workspace['grand_total']:,.2f} {heater_package_workspace['currency_code']}",
+                f"{equipment_package_workspace['grand_total']:,.2f} {equipment_package_workspace['currency_code']}",
                 help='Total of all attached equipment, material, allowance, and labor package lines currently linked to this quote case.',
             )
 
 
 
             with st.expander(f"Attached equipment packages for {case['quote_number']}", expanded=False):
+
+                with st.expander('Create manual equipment package template', expanded=False):
+                    manual_kind_col, manual_name_col = st.columns([1, 2])
+                    manual_kind = manual_kind_col.selectbox(
+                        'Package family',
+                        options=['pump', 'filter', 'salt_system', 'automation', 'other'],
+                        key=f'manual_package_kind_{case["id"]}',
+                        help='Select the equipment family for this reusable template.',
+                    )
+                    manual_template_name = manual_name_col.text_input(
+                        'Manual template name',
+                        key=f'manual_package_name_{case["id"]}',
+                        help='Friendly name shown later when applying this reusable equipment template.',
+                    )
+                    manual_template_description = st.text_input(
+                        'Template note',
+                        key=f'manual_package_note_{case["id"]}',
+                        help='Optional internal note about what this package is meant to cover.',
+                    )
+                    manual_default_rows = pd.DataFrame([
+                        {'Name': f'{manual_kind.title()} equipment', 'Description': '', 'Qty': 1.0, 'Unit Price': 0.0, 'Category': 'equipment'},
+                        {'Name': 'Installation labor', 'Description': '', 'Qty': 1.0, 'Unit Price': 0.0, 'Category': 'labor'},
+                    ])
+                    manual_rows = st.data_editor(
+                        manual_default_rows,
+                        key=f'manual_package_rows_{case["id"]}',
+                        width='stretch',
+                        num_rows='dynamic',
+                        hide_index=True,
+                    )
+                    if st.button('Save manual equipment package template', key=f'save_manual_package_template_{case["id"]}', help='Save this manually entered package as a reusable equipment package template that can be applied to quote cases later.'):
+                        lines_payload = []
+                        for _, row in manual_rows.iterrows():
+                            name = str(row.get('Name') or '').strip()
+                            if not name:
+                                continue
+                            try:
+                                qty = float(row.get('Qty') or 0)
+                            except (TypeError, ValueError):
+                                qty = 0.0
+                            try:
+                                amount = float(row.get('Unit Price') or 0)
+                            except (TypeError, ValueError):
+                                amount = 0.0
+                            lines_payload.append({
+                                'name': name,
+                                'description': str(row.get('Description') or '').strip(),
+                                'qty': qty,
+                                'amount': amount,
+                                'category': str(row.get('Category') or 'misc_materials').strip() or 'misc_materials',
+                                'code': 'USD',
+                            })
+                        with Session(engine) as session:
+                            try:
+                                create_manual_equipment_package_template(
+                                    session,
+                                    template_name=manual_template_name or f'{manual_kind.title()} package template',
+                                    package_kind=manual_kind,
+                                    lines=lines_payload,
+                                    saved_by='streamlit_operator',
+                                    template_description=manual_template_description,
+                                )
+                                st.success('Manual equipment package template saved.')
+                            except ValueError as exc:
+                                st.error(str(exc))
+                        st.rerun()
+
                 template_left, template_mid, template_right = st.columns([3, 1, 1])
-                if heater_package_templates:
+                if equipment_package_templates:
                     selected_template_slug = template_left.selectbox(
                         'Apply saved equipment package template',
-                        options=[item['template_slug'] for item in heater_package_templates],
-                        format_func=lambda slug, items={item['template_slug']: item for item in heater_package_templates}: items[slug]['template_name'],
+                        options=[item['template_slug'] for item in equipment_package_templates],
+                        format_func=lambda slug, items={item['template_slug']: item for item in equipment_package_templates}: f"[{items[slug].get('package_kind', 'equipment')}] {items[slug]['template_name']}",
                         key=f"apply_heater_template_{case['id']}",
                         help='Choose a saved heater package template to attach to this quote case.',
                     )
                     replace_existing_templates = template_mid.checkbox(
-                        'Replace current heater packages',
+                        'Replace current packages in same family',
                         key=f"replace_template_attach_{case['id']}",
-                        help='Remove current heater packages on this quote case before applying the selected template.',
+                        help='Remove currently attached packages in the same family before applying the selected template.',
                     )
                     if template_right.button('Apply template', key=f"apply_template_button_{case['id']}", help='Attach the selected saved equipment package template to this quote case.'):
                         with Session(engine) as session:
@@ -289,26 +356,28 @@ else:
                 else:
                     st.caption('No saved equipment package templates exist yet. Save one from an attached package below to reuse it later.')
 
-                if not heater_package_workspace['packages']:
-                    st.caption('No equipment packages are attached yet. Use the Heater Quote Tool to attach a package, or apply a saved template here later.')
+                if not equipment_package_workspace['packages']:
+                    st.caption('No equipment packages are attached yet. Use the Heater Quote Tool for heater packages, or create and apply a saved equipment package template here.')
                 else:
-                    st.caption(f"Use the Heater Quote Tool with quote case {case['id']} if you want to replace the current package set.")
-                    for package in heater_package_workspace['packages']:
+                    st.caption(f"Use the Heater Quote Tool with this quote case if you want to add or replace heater packages. Other package families can come from saved templates.")
+                    for package in equipment_package_workspace['packages']:
                         pkg_candidate = package.get('candidate', {})
                         pkg_summary = package.get('package_summary', {})
                         head_left, head_mid, head_right = st.columns([3, 2, 1])
-                        head_left.markdown(f"**{pkg_candidate.get('brand_name', '')} {pkg_candidate.get('model_name', package.get('external_label', 'Heater package'))}**")
-                        head_left.caption(f"SKU: {pkg_candidate.get('sku', 'Unknown')} | Units: {pkg_candidate.get('unit_count', 1)} | Attached by: {package.get('attached_by') or 'operator'}")
+                        pkg_kind = package.get('package_kind', 'equipment')
+                        package_title = (f"{pkg_candidate.get('brand_name', '')} {pkg_candidate.get('model_name', package.get('external_label', 'Equipment package'))}".strip() or package.get('external_label', 'Equipment package'))
+                        head_left.markdown(f"**[{pkg_kind}] {package_title}**")
+                        head_left.caption(f"SKU: {pkg_candidate.get('sku', 'n/a')} | Units: {pkg_candidate.get('unit_count', 1)} | Attached by: {package.get('attached_by') or 'operator'}")
                         head_mid.write(f"**Profile:** {pkg_summary.get('package_profile', 'auto')} / {pkg_summary.get('labor_profile', 'standard')}")
                         head_mid.write(f"**Totals:** Equipment {pkg_summary.get('equipment_total', 0):,.2f} | Labor {pkg_summary.get('labor_total', 0):,.2f} | Materials {pkg_summary.get('materials_total', 0):,.2f}")
                         template_name_value = st.text_input(
                             'Template name',
-                            value=(f"{pkg_candidate.get('brand_name', '').strip()} {pkg_candidate.get('model_name', package.get('external_label', 'Heater package')).strip()}".strip() or 'Heater package template'),
+                            value=(f"{pkg_candidate.get('brand_name', '').strip()} {pkg_candidate.get('model_name', package.get('external_label', 'Equipment package')).strip()}".strip() or f"{pkg_kind.title()} package template"),
                             key=f"heater_template_name_{case['id']}_{package['external_link_id']}",
                             help='Name to save this attached equipment package as a reusable template for future quotes.',
                         )
                         action_left, action_right = st.columns([1, 1])
-                        if action_left.button('Save as template', key=f"save_heater_template_{case['id']}_{package['external_link_id']}", help='Save this attached heater package as a reusable equipment package template for future quote cases.'):
+                        if action_left.button('Save as template', key=f"save_heater_template_{case['id']}_{package['external_link_id']}", help='Save this attached equipment package as a reusable template for future quote cases.'):
                             with Session(engine) as session:
                                 try:
                                     save_heater_package_template(
@@ -323,7 +392,7 @@ else:
                                     st.error(str(exc))
                             st.rerun()
                         if action_right.button('Delete template match', key=f"delete_matching_template_{case['id']}_{package['external_link_id']}", help='Delete a saved template with this same name if it exists. This does not affect the attached package on the quote case.'):
-                            matching = next((item for item in heater_package_templates if item['template_name'] == template_name_value), None)
+                            matching = next((item for item in equipment_package_templates if item['template_name'] == template_name_value), None)
                             if not matching:
                                 st.warning('No saved template with that name exists yet.')
                             else:

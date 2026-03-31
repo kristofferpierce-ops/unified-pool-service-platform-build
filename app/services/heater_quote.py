@@ -159,7 +159,7 @@ DEFAULT_HEATER_QUOTE_CONFIG: dict[str, Any] = {
 
 
 DEFAULT_EQUIPMENT_PACKAGE_TEMPLATE_CONFIG: dict[str, Any] = {
-    'version': 'platform_block_2d_equipment_package_templates',
+    'version': 'platform_block_2e_equipment_package_families',
     'templates': [],
 }
 
@@ -226,6 +226,77 @@ def _next_available_template_slug(existing_templates: list[dict[str, Any]], base
     return f'{base_slug}-{index}'
 
 
+
+
+def _normalize_template_package_kind(value: str | None) -> str:
+    kind = str(value or '').strip().lower()
+    return kind or 'equipment'
+
+
+def _attached_package_kind_from_payload(link: QuoteCaseExternalLink, payload: dict[str, Any] | None = None) -> str:
+    payload = payload or _safe_load(link.payload_json)
+    package_summary = payload.get('package_summary') if isinstance(payload.get('package_summary'), dict) else {}
+    source_payload = payload.get('source_payload') if isinstance(payload.get('source_payload'), dict) else {}
+    candidate = payload.get('candidate') if isinstance(payload.get('candidate'), dict) else {}
+    kind = (
+        package_summary.get('package_kind')
+        or package_summary.get('package_family')
+        or source_payload.get('package_kind')
+        or source_payload.get('package_family')
+        or payload.get('package_kind')
+    )
+    if not kind and link.system_slug == 'heater_quote':
+        kind = 'heater'
+    if not kind and candidate.get('heater_kind'):
+        kind = 'heater'
+    return _normalize_template_package_kind(str(kind or 'equipment'))
+
+
+def _serialize_attached_equipment_package_link(link: QuoteCaseExternalLink) -> dict[str, Any]:
+    payload = _safe_load(link.payload_json)
+    lines = payload.get('prepared_lines') or []
+    if not isinstance(lines, list) or not lines:
+        single = payload.get('prepared_line')
+        lines = [single] if isinstance(single, dict) else []
+    normalized_lines = [item for item in lines if isinstance(item, dict)]
+    equipment_total = round(sum(_line_total(item) for item in normalized_lines if str(item.get('category') or '') == 'equipment'), 2)
+    labor_total = round(sum(_line_total(item) for item in normalized_lines if str(item.get('category') or '') == 'labor'), 2)
+    materials_total = round(sum(_line_total(item) for item in normalized_lines if str(item.get('category') or '') not in {'equipment', 'labor'}), 2)
+    grand_total = round(equipment_total + labor_total + materials_total, 2)
+    package_summary = payload.get('package_summary') if isinstance(payload.get('package_summary'), dict) else {}
+    currency_code = str(package_summary.get('currency_code') or payload.get('candidate', {}).get('currency_code') or 'USD')
+    original_lines = payload.get('original_prepared_lines') or normalized_lines
+    if not isinstance(original_lines, list):
+        original_lines = normalized_lines
+    normalized_original_lines = [item for item in original_lines if isinstance(item, dict)]
+    has_overrides = normalized_lines != normalized_original_lines or bool(package_summary.get('edited'))
+    package_kind = _attached_package_kind_from_payload(link, payload)
+    return {
+        'external_link_id': link.id,
+        'external_id': link.external_id,
+        'external_label': link.external_label,
+        'attached_at': link.created_at.isoformat() if link.created_at else '',
+        'updated_at': link.updated_at.isoformat() if link.updated_at else '',
+        'candidate': payload.get('candidate') if isinstance(payload.get('candidate'), dict) else {},
+        'package_kind': package_kind,
+        'system_slug': link.system_slug,
+        'package_summary': {
+            **package_summary,
+            'package_kind': package_kind,
+            'equipment_total': equipment_total,
+            'labor_total': labor_total,
+            'materials_total': materials_total,
+            'grand_total': grand_total,
+            'currency_code': currency_code,
+            'line_count': len(normalized_lines),
+        },
+        'prepared_lines': normalized_lines,
+        'original_prepared_lines': normalized_original_lines,
+        'has_overrides': has_overrides,
+        'attached_by': payload.get('attached_by', ''),
+    }
+
+
 def save_heater_package_template(
     session: Session,
     *,
@@ -238,16 +309,16 @@ def save_heater_package_template(
     if case is None:
         raise ValueError('Quote case not found')
     link = session.get(QuoteCaseExternalLink, external_link_id)
-    if link is None or link.quote_case_id != quote_case_id or link.system_slug != 'heater_quote':
-        raise ValueError('Attached heater package not found')
-    serialized = _serialize_heater_package_link(link)
+    if link is None or link.quote_case_id != quote_case_id or link.system_slug not in {'heater_quote', 'equipment_package'}:
+        raise ValueError('Attached equipment package not found')
+    serialized = _serialize_attached_equipment_package_link(link)
     existing = _get_equipment_package_templates(session)
-    template_slug = _next_available_template_slug(existing, _slugify_template_name(template_name or serialized.get('external_label') or 'heater-package'))
+    template_slug = _next_available_template_slug(existing, _slugify_template_name(template_name or serialized.get('external_label') or 'equipment-package'))
     now_iso = datetime.utcnow().isoformat()
     template = {
         'template_slug': template_slug,
-        'template_name': str(template_name or serialized.get('external_label') or 'Heater package template').strip(),
-        'package_kind': 'heater',
+        'template_name': str(template_name or serialized.get('external_label') or 'Equipment package template').strip(),
+        'package_kind': serialized.get('package_kind', 'equipment'),
         'saved_by': saved_by,
         'created_at': now_iso,
         'updated_at': now_iso,
@@ -257,6 +328,55 @@ def save_heater_package_template(
         'package_summary': serialized.get('package_summary', {}),
         'prepared_lines': serialized.get('prepared_lines', []),
         'original_prepared_lines': serialized.get('original_prepared_lines', serialized.get('prepared_lines', [])),
+    }
+    templates = existing + [template]
+    set_setting(
+        session,
+        'equipment_package_templates',
+        {'version': DEFAULT_EQUIPMENT_PACKAGE_TEMPLATE_CONFIG['version'], 'templates': templates},
+        'Reusable equipment package templates saved from attached quote packages and later applied back into quote cases.',
+    )
+    return {
+        'saved_template': template,
+        'template_summary': get_equipment_package_template_summary(session),
+    }
+
+
+def create_manual_equipment_package_template(
+    session: Session,
+    *,
+    template_name: str,
+    package_kind: str,
+    lines: list[dict[str, Any]],
+    saved_by: str = 'operator',
+    template_description: str = '',
+    currency_code: str = 'USD',
+) -> dict[str, Any]:
+    normalized_kind = _normalize_template_package_kind(package_kind)
+    normalized_lines = _normalize_package_lines(lines, currency_code)
+    package_summary = _summarize_package_lines(
+        normalized_lines,
+        {'currency_code': currency_code, 'package_kind': normalized_kind, 'template_description': template_description},
+        edited=False,
+        edited_by=saved_by,
+    )
+    existing = _get_equipment_package_templates(session)
+    template_slug = _next_available_template_slug(existing, _slugify_template_name(template_name or f'{normalized_kind}-package'))
+    now_iso = datetime.utcnow().isoformat()
+    template = {
+        'template_slug': template_slug,
+        'template_name': str(template_name or f'{normalized_kind.title()} package template').strip(),
+        'package_kind': normalized_kind,
+        'saved_by': saved_by,
+        'created_at': now_iso,
+        'updated_at': now_iso,
+        'source_quote_case_id': None,
+        'source_external_link_id': None,
+        'candidate': {},
+        'package_summary': package_summary,
+        'prepared_lines': normalized_lines,
+        'original_prepared_lines': normalized_lines,
+        'template_description': template_description,
     }
     templates = existing + [template]
     set_setting(
@@ -302,12 +422,12 @@ def apply_equipment_package_template_to_quote_case(
     template = next((item for item in _get_equipment_package_templates(session) if str(item.get('template_slug') or '') == template_slug), None)
     if template is None:
         raise ValueError('Equipment package template not found')
-    if str(template.get('package_kind') or '') != 'heater':
-        raise ValueError('Only heater package templates are supported in this block.')
+
+    package_kind = _normalize_template_package_kind(str(template.get('package_kind') or 'equipment'))
 
     removed_existing_count = 0
     if replace_existing:
-        existing_links = _list_quote_case_heater_links(session, quote_case_id)
+        existing_links = _list_quote_case_equipment_links(session, quote_case_id, package_kind=package_kind)
         removed_existing_count = len(existing_links)
         for existing_link in existing_links:
             session.delete(existing_link)
@@ -321,12 +441,18 @@ def apply_equipment_package_template_to_quote_case(
     prepared_lines = template.get('prepared_lines') if isinstance(template.get('prepared_lines'), list) else []
     normalized_original = _normalize_package_lines(original_lines or prepared_lines, currency_code)
     normalized_lines = _normalize_package_lines(prepared_lines or original_lines, currency_code)
-    package_summary = _summarize_package_lines(normalized_lines, package_summary, edited=bool(package_summary.get('edited')), edited_by=str(package_summary.get('edited_by') or attached_by))
+    package_summary = _summarize_package_lines(
+        normalized_lines,
+        {**package_summary, 'package_kind': package_kind},
+        edited=bool(package_summary.get('edited')),
+        edited_by=str(package_summary.get('edited_by') or attached_by),
+    )
 
+    system_slug = 'heater_quote' if package_kind == 'heater' else 'equipment_package'
     link = add_external_link(
         session,
         quote_case_id=quote_case_id,
-        system_slug='heater_quote',
+        system_slug=system_slug,
         external_type='template',
         external_id=f"template:{template_slug}:{quote_case_id}:{int(datetime.utcnow().timestamp())}",
         external_label=str(template.get('template_name') or template_slug),
@@ -343,18 +469,17 @@ def apply_equipment_package_template_to_quote_case(
             'prepared_lines': normalized_lines,
             'original_prepared_lines': normalized_original,
             'original_package_summary': {**package_summary, 'edited': False},
-            'source_payload': {'template_slug': template_slug, 'package_kind': template.get('package_kind', 'heater')},
+            'source_payload': {'template_slug': template_slug, 'package_kind': package_kind},
         },
     )
     return {
         'quote_case': serialize_quote_case(session, case),
         'external_link': link.model_dump(),
         'removed_existing_count': removed_existing_count,
-        'package_workspace': get_quote_case_heater_package_workspace(session, quote_case_id),
+        'package_workspace': get_quote_case_equipment_package_workspace(session, quote_case_id),
         'applied_template': template,
         'template_summary': get_equipment_package_template_summary(session),
     }
-
 
 def _merge_heater_quote_config(config: dict[str, Any] | None) -> dict[str, Any]:
     merged = loads(dumps(DEFAULT_HEATER_QUOTE_CONFIG), {})
@@ -981,15 +1106,25 @@ def build_heater_package_preview(
 
 
 
-def _list_quote_case_heater_links(session: Session, quote_case_id: int) -> list[QuoteCaseExternalLink]:
-    return list(
+
+
+def _list_quote_case_equipment_links(session: Session, quote_case_id: int, package_kind: str | None = None) -> list[QuoteCaseExternalLink]:
+    links = list(
         session.exec(
             select(QuoteCaseExternalLink).where(
                 QuoteCaseExternalLink.quote_case_id == quote_case_id,
-                QuoteCaseExternalLink.system_slug == 'heater_quote',
+                QuoteCaseExternalLink.system_slug.in_(['heater_quote', 'equipment_package']),
             ).order_by(QuoteCaseExternalLink.created_at)
         ).all()
     )
+    if package_kind:
+        normalized_kind = _normalize_template_package_kind(package_kind)
+        links = [link for link in links if _attached_package_kind_from_payload(link) == normalized_kind]
+    return links
+
+
+def _list_quote_case_heater_links(session: Session, quote_case_id: int) -> list[QuoteCaseExternalLink]:
+    return _list_quote_case_equipment_links(session, quote_case_id, package_kind='heater')
 
 
 def _line_total(line: dict[str, Any]) -> float:
@@ -1000,45 +1135,7 @@ def _line_total(line: dict[str, Any]) -> float:
 
 
 def _serialize_heater_package_link(link: QuoteCaseExternalLink) -> dict[str, Any]:
-    payload = _safe_load(link.payload_json)
-    lines = payload.get('prepared_lines') or []
-    if not isinstance(lines, list) or not lines:
-        single = payload.get('prepared_line')
-        lines = [single] if isinstance(single, dict) else []
-    normalized_lines = [item for item in lines if isinstance(item, dict)]
-    equipment_total = round(sum(_line_total(item) for item in normalized_lines if str(item.get('category') or '') == 'equipment'), 2)
-    labor_total = round(sum(_line_total(item) for item in normalized_lines if str(item.get('category') or '') == 'labor'), 2)
-    materials_total = round(sum(_line_total(item) for item in normalized_lines if str(item.get('category') or '') not in {'equipment', 'labor'}), 2)
-    grand_total = round(equipment_total + labor_total + materials_total, 2)
-    package_summary = payload.get('package_summary') if isinstance(payload.get('package_summary'), dict) else {}
-    currency_code = str(package_summary.get('currency_code') or payload.get('candidate', {}).get('currency_code') or 'USD')
-    original_lines = payload.get('original_prepared_lines') or normalized_lines
-    if not isinstance(original_lines, list):
-        original_lines = normalized_lines
-    normalized_original_lines = [item for item in original_lines if isinstance(item, dict)]
-    has_overrides = normalized_lines != normalized_original_lines or bool(package_summary.get('edited'))
-    return {
-        'external_link_id': link.id,
-        'external_id': link.external_id,
-        'external_label': link.external_label,
-        'attached_at': link.created_at.isoformat() if link.created_at else '',
-        'updated_at': link.updated_at.isoformat() if link.updated_at else '',
-        'candidate': payload.get('candidate') if isinstance(payload.get('candidate'), dict) else {},
-        'package_summary': {
-            **package_summary,
-            'equipment_total': equipment_total,
-            'labor_total': labor_total,
-            'materials_total': materials_total,
-            'grand_total': grand_total,
-            'currency_code': currency_code,
-            'line_count': len(normalized_lines),
-        },
-        'prepared_lines': normalized_lines,
-        'original_prepared_lines': normalized_original_lines,
-        'has_overrides': has_overrides,
-        'attached_by': payload.get('attached_by', ''),
-    }
-
+    return _serialize_attached_equipment_package_link(link)
 
 
 def _normalize_package_lines(lines: list[dict[str, Any]], currency_code: str) -> list[dict[str, Any]]:
@@ -1119,7 +1216,7 @@ def update_heater_package_lines(
     if case is None:
         raise ValueError('Quote case not found')
     link = session.get(QuoteCaseExternalLink, external_link_id)
-    if link is None or link.quote_case_id != quote_case_id or link.system_slug != 'heater_quote':
+    if link is None or link.quote_case_id != quote_case_id or link.system_slug not in {'heater_quote', 'equipment_package'}:
         raise ValueError('Attached heater package not found')
     payload = _safe_load(link.payload_json)
     currency_code = str((payload.get('package_summary') or {}).get('currency_code') or (payload.get('candidate') or {}).get('currency_code') or 'USD')
@@ -1144,7 +1241,7 @@ def update_heater_package_lines(
     return {
         'external_link_id': external_link_id,
         'quote_case_id': quote_case_id,
-        'package_workspace': get_quote_case_heater_package_workspace(session, quote_case_id),
+        'package_workspace': get_quote_case_equipment_package_workspace(session, quote_case_id),
     }
 
 
@@ -1154,7 +1251,7 @@ def reset_heater_package_lines(session: Session, *, quote_case_id: int, external
     if case is None:
         raise ValueError('Quote case not found')
     link = session.get(QuoteCaseExternalLink, external_link_id)
-    if link is None or link.quote_case_id != quote_case_id or link.system_slug != 'heater_quote':
+    if link is None or link.quote_case_id != quote_case_id or link.system_slug not in {'heater_quote', 'equipment_package'}:
         raise ValueError('Attached heater package not found')
     payload = _safe_load(link.payload_json)
     currency_code = str((payload.get('package_summary') or {}).get('currency_code') or (payload.get('candidate') or {}).get('currency_code') or 'USD')
@@ -1173,44 +1270,61 @@ def reset_heater_package_lines(session: Session, *, quote_case_id: int, external
     return {
         'external_link_id': external_link_id,
         'quote_case_id': quote_case_id,
-        'package_workspace': get_quote_case_heater_package_workspace(session, quote_case_id),
+        'package_workspace': get_quote_case_equipment_package_workspace(session, quote_case_id),
     }
 
 
-def get_quote_case_heater_package_workspace(session: Session, quote_case_id: int) -> dict[str, Any]:
-    packages = [_serialize_heater_package_link(link) for link in _list_quote_case_heater_links(session, quote_case_id)]
+
+
+def get_quote_case_equipment_package_workspace(session: Session, quote_case_id: int, package_kind: str | None = None) -> dict[str, Any]:
+    packages = [_serialize_attached_equipment_package_link(link) for link in _list_quote_case_equipment_links(session, quote_case_id, package_kind=package_kind)]
     currency_code = next((pkg.get('package_summary', {}).get('currency_code') for pkg in packages if pkg.get('package_summary', {}).get('currency_code')), 'USD')
     equipment_total = round(sum(float(pkg.get('package_summary', {}).get('equipment_total') or 0) for pkg in packages), 2)
     labor_total = round(sum(float(pkg.get('package_summary', {}).get('labor_total') or 0) for pkg in packages), 2)
     materials_total = round(sum(float(pkg.get('package_summary', {}).get('materials_total') or 0) for pkg in packages), 2)
     grand_total = round(sum(float(pkg.get('package_summary', {}).get('grand_total') or 0) for pkg in packages), 2)
+    by_kind: dict[str, int] = {}
+    for pkg in packages:
+        kind = str(pkg.get('package_kind') or 'equipment')
+        by_kind[kind] = by_kind.get(kind, 0) + 1
     return {
         'quote_case_id': quote_case_id,
+        'package_kind': package_kind,
         'package_count': len(packages),
         'currency_code': currency_code,
         'equipment_total': equipment_total,
         'labor_total': labor_total,
         'materials_total': materials_total,
         'grand_total': grand_total,
+        'by_kind': by_kind,
         'packages': packages,
     }
 
 
-def list_quote_case_heater_package_lines(session: Session, quote_case_id: int) -> list[dict[str, Any]]:
+def get_quote_case_heater_package_workspace(session: Session, quote_case_id: int) -> dict[str, Any]:
+    return get_quote_case_equipment_package_workspace(session, quote_case_id, package_kind='heater')
+
+
+def list_quote_case_equipment_package_lines(session: Session, quote_case_id: int, package_kind: str | None = None) -> list[dict[str, Any]]:
     prepared_lines: list[dict[str, Any]] = []
-    for package in get_quote_case_heater_package_workspace(session, quote_case_id).get('packages', []):
+    for package in get_quote_case_equipment_package_workspace(session, quote_case_id, package_kind=package_kind).get('packages', []):
         lines = package.get('prepared_lines') or []
         prepared_lines.extend([item for item in lines if isinstance(item, dict)])
     return prepared_lines
 
 
-def remove_heater_package_from_quote_case(session: Session, *, quote_case_id: int, external_link_id: int) -> dict[str, Any]:
+def list_quote_case_heater_package_lines(session: Session, quote_case_id: int) -> list[dict[str, Any]]:
+    # Legacy name retained because the FreshBooks sync layer already imports it.
+    return list_quote_case_equipment_package_lines(session, quote_case_id)
+
+
+def remove_equipment_package_from_quote_case(session: Session, *, quote_case_id: int, external_link_id: int) -> dict[str, Any]:
     case = get_quote_case(session, quote_case_id)
     if case is None:
         raise ValueError('Quote case not found')
     link = session.get(QuoteCaseExternalLink, external_link_id)
-    if link is None or link.quote_case_id != quote_case_id or link.system_slug != 'heater_quote':
-        raise ValueError('Attached heater package not found')
+    if link is None or link.quote_case_id != quote_case_id or link.system_slug not in {'heater_quote', 'equipment_package'}:
+        raise ValueError('Attached equipment package not found')
     removed_external_id = link.external_id
     session.delete(link)
     session.commit()
@@ -1218,9 +1332,12 @@ def remove_heater_package_from_quote_case(session: Session, *, quote_case_id: in
         'removed_external_link_id': external_link_id,
         'removed_external_id': removed_external_id,
         'quote_case_id': quote_case_id,
-        'workspace': get_quote_case_heater_package_workspace(session, quote_case_id),
+        'workspace': get_quote_case_equipment_package_workspace(session, quote_case_id),
     }
 
+
+def remove_heater_package_from_quote_case(session: Session, *, quote_case_id: int, external_link_id: int) -> dict[str, Any]:
+    return remove_equipment_package_from_quote_case(session, quote_case_id=quote_case_id, external_link_id=external_link_id)
 
 def attach_heater_candidate_to_quote_case(
     session: Session,
@@ -1317,6 +1434,7 @@ def attach_heater_candidate_to_quote_case(
                 'labor_total': round(sum(_line_total(item) for item in package_preview['lines'] if str(item.get('category') or '') == 'labor'), 2),
                 'materials_total': round(sum(_line_total(item) for item in package_preview['lines'] if str(item.get('category') or '') not in {'equipment', 'labor'}), 2),
                 'line_count': len(package_preview['lines']),
+                'package_kind': 'heater',
                 'edited': False,
             },
             'prepared_line': package_preview['lines'][0] if package_preview['lines'] else {},
@@ -1332,6 +1450,7 @@ def attach_heater_candidate_to_quote_case(
                 'labor_total': round(sum(_line_total(item) for item in package_preview['lines'] if str(item.get('category') or '') == 'labor'), 2),
                 'materials_total': round(sum(_line_total(item) for item in package_preview['lines'] if str(item.get('category') or '') not in {'equipment', 'labor'}), 2),
                 'line_count': len(package_preview['lines']),
+                'package_kind': 'heater',
                 'edited': False,
             },
             'source_payload': candidate_payload,
@@ -1351,7 +1470,7 @@ def attach_heater_candidate_to_quote_case(
             'options': package_preview['options'],
         },
         'removed_existing_count': removed_existing_count,
-        'package_workspace': get_quote_case_heater_package_workspace(session, quote_case_id),
+        'package_workspace': get_quote_case_equipment_package_workspace(session, quote_case_id),
     }
 
 

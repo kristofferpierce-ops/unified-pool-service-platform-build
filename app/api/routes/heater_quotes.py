@@ -10,12 +10,13 @@ from app.services.heater_quote import (
     attach_heater_candidate_to_quote_case,
     build_heater_package_preview,
     create_heater_quote_run,
+    create_manual_equipment_package_template,
     delete_equipment_package_template,
     delete_heater_quote_run,
     get_equipment_package_template_summary,
     get_heater_quote_dashboard_summary,
     get_heater_quote_settings,
-    get_quote_case_heater_package_workspace,
+    get_quote_case_equipment_package_workspace,
     list_equipment_package_templates,
     list_heater_quote_runs,
     reset_heater_package_lines,
@@ -100,6 +101,14 @@ class SaveEquipmentPackageTemplateBody(BaseModel):
     external_link_id: int
     template_name: str
     saved_by: str = 'operator'
+
+
+class ManualEquipmentPackageTemplateBody(BaseModel):
+    template_name: str
+    package_kind: str = 'equipment'
+    saved_by: str = 'operator'
+    template_description: str = ''
+    lines: list[HeaterPackageLineBody]
 
 
 class ApplyEquipmentPackageTemplateBody(BaseModel):
@@ -223,7 +232,7 @@ def attach_heater_quote(run_id: int, body: HeaterQuoteAttachBody):
 @router.get('/workspace/{quote_case_id}')
 def heater_quote_workspace(quote_case_id: int):
     with Session(engine) as session:
-        return get_quote_case_heater_package_workspace(session, quote_case_id)
+        return get_quote_case_equipment_package_workspace(session, quote_case_id)
 
 
 @router.post('/workspace/{quote_case_id}/packages/{external_link_id}')
@@ -284,6 +293,23 @@ def save_equipment_package_template(body: SaveEquipmentPackageTemplateBody):
             message = str(exc).lower()
             status_code = 404 if 'not found' in message else 400
             raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
+
+@router.post('/templates/manual')
+def create_manual_template(body: ManualEquipmentPackageTemplateBody):
+    with Session(engine) as session:
+        try:
+            return create_manual_equipment_package_template(
+                session,
+                template_name=body.template_name,
+                package_kind=body.package_kind,
+                lines=[item.model_dump() for item in body.lines],
+                saved_by=body.saved_by,
+                template_description=body.template_description,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post('/templates/{template_slug}/apply')

@@ -12,10 +12,12 @@ from app.services.heater_quote import (
     calculate_heater_requirements,
     create_heater_quote_run,
     apply_equipment_package_template_to_quote_case,
+    create_manual_equipment_package_template,
     delete_equipment_package_template,
     delete_heater_quote_run,
     ensure_heater_quote_settings,
     get_equipment_package_template_summary,
+    get_quote_case_equipment_package_workspace,
     get_quote_case_heater_package_workspace,
     list_equipment_package_templates,
     list_quote_case_heater_package_lines,
@@ -670,3 +672,111 @@ def test_delete_equipment_package_template_removes_saved_template():
         assert result['deleted_template_slug'] == saved['saved_template']['template_slug']
         summary = get_equipment_package_template_summary(session)
         assert all(item['template_slug'] != saved['saved_template']['template_slug'] for item in summary['templates'])
+
+
+
+def test_create_manual_equipment_package_template_records_generic_family():
+    with Session(engine) as session:
+        result = create_manual_equipment_package_template(
+            session,
+            template_name='Standard Pump Equipment Package',
+            package_kind='pump',
+            saved_by='pytest',
+            template_description='Reusable pump swap package',
+            lines=[
+                {'name': 'Variable speed pump', 'description': 'Equipment allowance', 'qty': 1, 'amount': 1650.0, 'category': 'equipment', 'code': 'USD'},
+                {'name': 'Pump installation labor', 'description': 'Field labor allowance', 'qty': 1, 'amount': 650.0, 'category': 'labor', 'code': 'USD'},
+            ],
+        )
+        assert result['saved_template']['package_kind'] == 'pump'
+        summary = get_equipment_package_template_summary(session)
+        assert summary['by_kind']['pump'] >= 1
+
+
+
+def test_apply_saved_manual_equipment_package_template_to_quote_case_creates_attachment():
+    with Session(engine) as session:
+        case = create_quote_case(
+            session,
+            pipeline_slug='new_residential_services',
+            title='Manual template target case',
+            requester_name='Manual Template Owner',
+            requester_email='manual-template@example.com',
+        )
+        saved = create_manual_equipment_package_template(
+            session,
+            template_name='Salt System Conversion Package',
+            package_kind='salt_system',
+            saved_by='pytest',
+            template_description='Salt equipment conversion package',
+            lines=[
+                {'name': 'Salt cell and power center', 'description': 'Salt system equipment', 'qty': 1, 'amount': 1850.0, 'category': 'equipment', 'code': 'USD'},
+                {'name': 'Salt install labor', 'description': 'Install labor allowance', 'qty': 1, 'amount': 550.0, 'category': 'labor', 'code': 'USD'},
+            ],
+        )
+        applied = apply_equipment_package_template_to_quote_case(
+            session,
+            template_slug=saved['saved_template']['template_slug'],
+            quote_case_id=case.id,
+            attached_by='pytest',
+            replace_existing=False,
+        )
+        assert applied['external_link']['system_slug'] == 'equipment_package'
+        workspace = get_quote_case_equipment_package_workspace(session, case.id)
+        assert workspace['package_count'] == 1
+        assert workspace['packages'][0]['package_kind'] == 'salt_system'
+        assert workspace['packages'][0]['external_label'] == 'Salt System Conversion Package'
+
+
+
+def test_generic_equipment_workspace_summarizes_mixed_package_families():
+    with Session(engine) as session:
+        case = create_quote_case(
+            session,
+            pipeline_slug='new_residential_services',
+            title='Mixed family workspace case',
+            requester_name='Mixed Family Owner',
+            requester_email='mixed-family@example.com',
+        )
+        run_payload = create_heater_quote_run(
+            session,
+            title='Mixed family heater run',
+            quote_case_id=case.id,
+            direct_gallons=15000.0,
+            current_water_temp_f=72.0,
+            target_water_temp_f=84.0,
+            ambient_air_temp_f=79.0,
+            desired_heatup_hours=24.0,
+            heater_kind_preference='gas',
+            fuel_preference='auto',
+            unit_count=1,
+        )
+        attach_heater_candidate_to_quote_case(
+            session,
+            run_id=run_payload['id'],
+            candidate_id=run_payload['candidates'][0]['id'],
+            quote_case_id=case.id,
+        )
+        saved = create_manual_equipment_package_template(
+            session,
+            template_name='Standard Filter Package',
+            package_kind='filter',
+            saved_by='pytest',
+            lines=[
+                {'name': 'Cartridge filter body', 'description': 'Filter equipment', 'qty': 1, 'amount': 980.0, 'category': 'equipment', 'code': 'USD'},
+                {'name': 'Filter install labor', 'description': 'Install labor', 'qty': 1, 'amount': 420.0, 'category': 'labor', 'code': 'USD'},
+            ],
+        )
+        apply_equipment_package_template_to_quote_case(
+            session,
+            template_slug=saved['saved_template']['template_slug'],
+            quote_case_id=case.id,
+            attached_by='pytest',
+            replace_existing=False,
+        )
+        workspace = get_quote_case_equipment_package_workspace(session, case.id)
+        assert workspace['package_count'] == 2
+        assert workspace['by_kind']['heater'] == 1
+        assert workspace['by_kind']['filter'] == 1
+        attached_lines = list_quote_case_heater_package_lines(session, case.id)
+        assert any(line['name'] == 'Cartridge filter body' for line in attached_lines)
