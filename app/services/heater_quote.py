@@ -1125,6 +1125,75 @@ def _attached_package_kind_from_payload(link: QuoteCaseExternalLink, payload: di
     return _normalize_template_package_kind(str(kind or 'equipment'))
 
 
+
+
+def _normalize_selector_item(selector_item: object, payload: dict[str, Any]) -> dict[str, Any]:
+    item = dict(selector_item) if isinstance(selector_item, dict) else {}
+    payload_dict = payload if isinstance(payload, dict) else {}
+
+    nested_sources: list[dict[str, Any]] = []
+    for source in (item, payload_dict):
+        if not isinstance(source, dict):
+            continue
+        for key in (
+            'selected_item',
+            'catalog_item',
+            'item',
+            'selector_catalog_item',
+            'selector_item',
+            'selected_catalog_item',
+            'catalog_selection',
+            'selection',
+        ):
+            value = source.get(key)
+            if isinstance(value, dict):
+                nested_sources.append(value)
+
+    sources: list[dict[str, Any]] = [item, *nested_sources, payload_dict]
+
+    def _pick(*keys: str) -> Any:
+        for source in sources:
+            if not isinstance(source, dict):
+                continue
+            for key in keys:
+                value = source.get(key)
+                if value not in (None, ''):
+                    return value
+        return ''
+
+    normalized = {}
+    normalized.update(next((src for src in nested_sources if isinstance(src, dict)), {}))
+    normalized.update(item)
+
+    item_slug = _pick(
+        'item_slug',
+        'slug',
+        'catalog_slug',
+        'selected_slug',
+        'selected_item_slug',
+        'selector_item_slug',
+    )
+    if item_slug:
+        normalized['item_slug'] = str(item_slug)
+
+    display_name = _pick('display_name', 'name', 'title', 'model_name')
+    if display_name and not normalized.get('display_name'):
+        normalized['display_name'] = str(display_name)
+
+    manufacturer = _pick('manufacturer', 'brand_name', 'brand')
+    if manufacturer and not normalized.get('manufacturer'):
+        normalized['manufacturer'] = str(manufacturer)
+
+    model_name = _pick('model_name', 'model', 'title', 'name')
+    if model_name and not normalized.get('model_name'):
+        normalized['model_name'] = str(model_name)
+
+    sku = _pick('sku', 'vendor_sku')
+    if sku and not normalized.get('sku'):
+        normalized['sku'] = str(sku)
+
+    return normalized
+
 def _serialize_attached_equipment_package_link(link: QuoteCaseExternalLink) -> dict[str, Any]:
     payload = _safe_load(link.payload_json)
     lines = payload.get('prepared_lines') or []
@@ -1166,6 +1235,8 @@ def _serialize_attached_equipment_package_link(link: QuoteCaseExternalLink) -> d
         'prepared_lines': normalized_lines,
         'original_prepared_lines': normalized_original_lines,
         'has_overrides': has_overrides,
+        'selector_item': _normalize_selector_item(payload.get('selector_item'), payload),
+        'compatibility': payload.get('compatibility') if isinstance(payload.get('compatibility'), dict) else {},
         'attached_by': payload.get('attached_by', ''),
     }
 
@@ -1614,6 +1685,8 @@ def apply_equipment_package_template_to_quote_case(
             'prepared_lines': normalized_lines,
             'original_prepared_lines': normalized_original,
             'original_package_summary': {**package_summary, 'edited': False},
+            'selector_item': template.get('selector_item') if isinstance(template.get('selector_item'), dict) else {},
+            'compatibility_context': template.get('compatibility_context') if isinstance(template.get('compatibility_context'), dict) else {},
             'source_payload': {'template_slug': template_slug, 'package_kind': package_kind},
         },
     )
