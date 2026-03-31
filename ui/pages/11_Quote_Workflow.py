@@ -30,7 +30,7 @@ from app.services.freshbooks_sync import (
     refresh_quote_case_from_freshbooks,
     sync_quote_case_to_freshbooks,
 )
-from app.services.heater_quote import apply_equipment_package_template_to_quote_case, build_equipment_package_template_from_builder_preview, create_equipment_package_template_from_builder, create_manual_equipment_package_template, delete_equipment_package_template, get_equipment_family_builder_catalog, get_equipment_package_template_summary, get_quote_case_equipment_package_workspace, list_equipment_package_templates, remove_heater_package_from_quote_case, reset_heater_package_lines, save_heater_package_template, update_heater_package_lines
+from app.services.heater_quote import apply_equipment_package_template_to_quote_case, build_equipment_package_template_from_builder_preview, build_equipment_package_template_from_wizard_preview, create_equipment_package_template_from_builder, create_equipment_package_template_from_wizard, create_manual_equipment_package_template, delete_equipment_package_template, get_equipment_family_builder_catalog, get_equipment_family_builder_wizard_catalog, get_equipment_package_template_summary, get_quote_case_equipment_package_workspace, list_equipment_package_templates, remove_heater_package_from_quote_case, reset_heater_package_lines, save_heater_package_template, update_heater_package_lines
 from app.services.quote_workflow import (
     create_quote_case,
     get_dashboard_summary,
@@ -259,6 +259,144 @@ else:
 
 
             with st.expander(f"Attached equipment packages for {case['quote_number']}", expanded=False):
+
+                with st.expander('Create equipment package from wizard', expanded=False):
+                    wizard_catalog = get_equipment_family_builder_wizard_catalog(session)
+                    wizard_families = wizard_catalog.get('families', {}) if isinstance(wizard_catalog, dict) else {}
+                    wizard_family_options = list(wizard_families.keys()) or ['pump', 'filter', 'salt_system', 'automation']
+                    wizard_family_col, wizard_name_col = st.columns([1, 2])
+                    wizard_family = wizard_family_col.selectbox(
+                        'Wizard family',
+                        options=wizard_family_options,
+                        key=f'wizard_family_{case["id"]}',
+                        format_func=lambda slug, families=wizard_families: families.get(slug, {}).get('label', slug.replace('_', ' ').title()),
+                        help='Choose a structured equipment family wizard that will build package defaults from family-specific inputs.',
+                    )
+                    selected_wizard_family = wizard_families.get(wizard_family, {}) if isinstance(wizard_families.get(wizard_family), dict) else {}
+                    wizard_template_name = wizard_name_col.text_input(
+                        'Wizard template name',
+                        value=str(selected_wizard_family.get('default_template_name') or f'{wizard_family.replace('_', ' ').title()} package template'),
+                        key=f'wizard_template_name_{case["id"]}',
+                        help='Reusable template name generated from the wizard inputs.',
+                    )
+                    wizard_fields = selected_wizard_family.get('fields', []) if isinstance(selected_wizard_family.get('fields'), list) else []
+                    wizard_values = {}
+                    if wizard_fields:
+                        field_columns = st.columns(2)
+                        for index, field in enumerate(wizard_fields):
+                            if not isinstance(field, dict):
+                                continue
+                            name = str(field.get('name') or '').strip()
+                            if not name:
+                                continue
+                            label = str(field.get('label') or name.replace('_', ' ').title())
+                            field_type = str(field.get('type') or 'text')
+                            key = f'wizard_input_{case["id"]}_{wizard_family}_{name}'
+                            column = field_columns[index % 2]
+                            if field_type == 'bool':
+                                wizard_values[name] = column.checkbox(label, value=bool(field.get('default', False)), key=key)
+                            elif field_type == 'enum':
+                                options = list(field.get('options') or [])
+                                default_value = field.get('default') if field.get('default') in options else (options[0] if options else '')
+                                wizard_values[name] = column.selectbox(label, options=options, index=options.index(default_value) if default_value in options else 0, key=key) if options else ''
+                            elif field_type == 'int':
+                                wizard_values[name] = int(column.number_input(label, min_value=int(field.get('minimum', 0)), value=int(field.get('default', 0)), step=int(field.get('step', 1)), key=key))
+                            elif field_type == 'float':
+                                wizard_values[name] = float(column.number_input(label, min_value=float(field.get('minimum', 0.0)), value=float(field.get('default', 0.0)), step=float(field.get('step', 1.0)), key=key))
+                            else:
+                                wizard_values[name] = column.text_input(label, value=str(field.get('default', '')), key=key)
+                    wizard_price_col, wizard_qty_col, wizard_labor_col = st.columns([1, 1, 1])
+                    wizard_unit_price = wizard_price_col.number_input(
+                        'Wizard equipment unit price',
+                        min_value=0.0,
+                        value=0.0,
+                        step=50.0,
+                        key=f'wizard_equipment_price_{case["id"]}',
+                        help='Per-unit equipment allowance used for the package generated by the wizard.',
+                    )
+                    wizard_quantity = wizard_qty_col.number_input(
+                        'Wizard quantity',
+                        min_value=1,
+                        max_value=24,
+                        value=1,
+                        step=1,
+                        key=f'wizard_quantity_{case["id"]}',
+                        help='How many complete equipment units the wizard should include in the package.',
+                    )
+                    wizard_labor_profiles = equipment_family_builder_catalog.get('labor_profiles', {}) if isinstance(equipment_family_builder_catalog, dict) else {}
+                    wizard_labor_options = list(wizard_labor_profiles.keys()) or ['standard']
+                    wizard_labor_profile = wizard_labor_col.selectbox(
+                        'Wizard labor profile',
+                        options=wizard_labor_options,
+                        key=f'wizard_labor_profile_{case["id"]}',
+                        format_func=lambda slug, labor=wizard_labor_profiles: labor.get(slug, {}).get('label', slug.replace('_', ' ').title()),
+                        help='Labor profile applied to the package generated by the wizard.',
+                    )
+                    wizard_note = st.text_input(
+                        'Wizard note',
+                        key=f'wizard_note_{case["id"]}',
+                        help='Optional internal note stored with the wizard-created reusable package template.',
+                    )
+                    wizard_misc_materials = st.number_input(
+                        'Wizard miscellaneous materials allowance',
+                        min_value=0.0,
+                        value=0.0,
+                        step=25.0,
+                        key=f'wizard_misc_materials_{case["id"]}',
+                        help='Optional extra materials allowance added to the generated package.',
+                    )
+                    wizard_preview_col, wizard_save_col = st.columns([1, 1])
+                    if wizard_preview_col.button('Preview wizard package', key=f'preview_wizard_package_{case["id"]}', help='Preview the package lines this structured wizard will build before saving the reusable template.'):
+                        with Session(engine) as session:
+                            try:
+                                wizard_preview = build_equipment_package_template_from_wizard_preview(
+                                    session,
+                                    package_kind=wizard_family,
+                                    wizard_inputs=wizard_values,
+                                    equipment_unit_price=wizard_unit_price,
+                                    quantity=int(wizard_quantity),
+                                    saved_by='streamlit_operator',
+                                    template_name=wizard_template_name,
+                                    template_description=wizard_note,
+                                    labor_profile=wizard_labor_profile,
+                                    misc_materials_amount=wizard_misc_materials,
+                                )
+                            except ValueError as exc:
+                                st.error(str(exc))
+                            else:
+                                preview_rows = pd.DataFrame([
+                                    {
+                                        'Name': line.get('name'),
+                                        'Description': line.get('description'),
+                                        'Qty': line.get('qty'),
+                                        'Unit Price': line.get('amount'),
+                                        'Category': line.get('category'),
+                                    }
+                                    for line in wizard_preview['prepared_lines']
+                                ])
+                                st.write('Wizard preview')
+                                st.dataframe(preview_rows, width='stretch')
+                                preview_summary = wizard_preview.get('package_summary', {})
+                                st.caption(f"Wizard profile: {wizard_preview.get('resolved_builder_profile', '')} · Preview total: {preview_summary.get('package_total', 0):,.2f} {preview_summary.get('currency_code', 'USD')}")
+                    if wizard_save_col.button('Save wizard package template', key=f'save_wizard_package_template_{case["id"]}', help='Create a reusable equipment package template from the structured family wizard inputs.'):
+                        with Session(engine) as session:
+                            try:
+                                create_equipment_package_template_from_wizard(
+                                    session,
+                                    template_name=wizard_template_name or f'{wizard_family.title()} wizard template',
+                                    package_kind=wizard_family,
+                                    wizard_inputs=wizard_values,
+                                    equipment_unit_price=wizard_unit_price,
+                                    quantity=int(wizard_quantity),
+                                    saved_by='streamlit_operator',
+                                    template_description=wizard_note,
+                                    labor_profile=wizard_labor_profile,
+                                    misc_materials_amount=wizard_misc_materials,
+                                )
+                                st.success('Wizard equipment package template saved.')
+                            except ValueError as exc:
+                                st.error(str(exc))
+                        st.rerun()
 
                 with st.expander('Create builder equipment package template', expanded=False):
                     builder_families = equipment_family_builder_catalog.get('families', {}) if isinstance(equipment_family_builder_catalog, dict) else {}

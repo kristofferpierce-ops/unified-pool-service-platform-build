@@ -13,8 +13,11 @@ from app.services.heater_quote import (
     create_heater_quote_run,
     apply_equipment_package_template_to_quote_case,
     build_equipment_package_template_from_builder_preview,
+    build_equipment_package_template_from_wizard_preview,
     create_equipment_package_template_from_builder,
+    create_equipment_package_template_from_wizard,
     get_equipment_family_builder_catalog,
+    get_equipment_family_builder_wizard_catalog,
     create_manual_equipment_package_template,
     delete_equipment_package_template,
     delete_heater_quote_run,
@@ -868,3 +871,100 @@ def test_apply_builder_created_automation_template_to_quote_case_creates_attachm
         assert workspace['package_count'] == 1
         assert workspace['packages'][0]['package_kind'] == 'automation'
 
+
+
+def test_equipment_family_builder_wizard_catalog_lists_supported_families():
+    catalog = get_equipment_family_builder_wizard_catalog()
+    families = catalog.get('families', {})
+    assert {'pump', 'filter', 'salt_system', 'automation'} <= set(families.keys())
+    assert any(field.get('name') == 'horsepower' for field in families['pump'].get('fields', []))
+
+
+
+def test_build_pump_package_template_preview_from_wizard_uses_structured_inputs():
+    with Session(engine) as session:
+        preview = build_equipment_package_template_from_wizard_preview(
+            session,
+            package_kind='pump',
+            wizard_inputs={
+                'pump_style': 'variable_speed',
+                'horsepower': 3.0,
+                'voltage': '230V',
+                'plumbing_size_in': 2.5,
+                'union_size_in': 2.5,
+                'automation_integration': True,
+            },
+            equipment_unit_price=2450.0,
+            quantity=1,
+            saved_by='pytest',
+            template_name='Pump Wizard Template',
+            labor_profile='standard',
+        )
+        assert preview['package_kind'] == 'pump'
+        assert preview['resolved_builder_profile'] == 'variable_speed_upgrade'
+        assert '3 HP Variable Speed Pump' in preview['suggested_equipment_name']
+        assert any(line['name'] == preview['suggested_equipment_name'] for line in preview['prepared_lines'])
+
+
+
+def test_create_salt_system_package_template_from_wizard_saves_reusable_template():
+    with Session(engine) as session:
+        saved = create_equipment_package_template_from_wizard(
+            session,
+            template_name='Salt Wizard Template',
+            package_kind='salt_system',
+            wizard_inputs={
+                'system_mode': 'conversion',
+                'pool_gallons': 18000.0,
+                'oversize_factor': 1.5,
+                'automation_compatible': True,
+                'include_startup_salt': True,
+            },
+            equipment_unit_price=2100.0,
+            quantity=1,
+            saved_by='pytest',
+            labor_profile='standard',
+        )
+        assert saved['saved_template']['package_kind'] == 'salt_system'
+        assert saved['saved_template']['builder_profile'] == 'salt_conversion'
+        assert saved['saved_template']['wizard_inputs']['pool_gallons'] == 18000.0
+
+
+
+def test_apply_wizard_created_filter_template_to_quote_case_creates_attachment():
+    with Session(engine) as session:
+        case = create_quote_case(
+            session,
+            pipeline_slug='new_residential_services',
+            title='Filter wizard target case',
+            requester_name='Filter Wizard Owner',
+            requester_email='filter-wizard@example.com',
+        )
+        saved = create_equipment_package_template_from_wizard(
+            session,
+            template_name='Filter Wizard Template',
+            package_kind='filter',
+            wizard_inputs={
+                'filter_style': 'sand',
+                'filter_area_sqft': 0.0,
+                'tank_diameter_in': 30.0,
+                'target_flow_gpm': 80.0,
+                'include_media_charge': True,
+            },
+            equipment_unit_price=1600.0,
+            quantity=1,
+            saved_by='pytest',
+            labor_profile='standard',
+        )
+        applied = apply_equipment_package_template_to_quote_case(
+            session,
+            template_slug=saved['saved_template']['template_slug'],
+            quote_case_id=case.id,
+            attached_by='pytest',
+            replace_existing=False,
+        )
+        assert applied['external_link']['system_slug'] == 'equipment_package'
+        workspace = get_quote_case_equipment_package_workspace(session, case.id)
+        assert workspace['package_count'] == 1
+        assert workspace['packages'][0]['package_kind'] == 'filter'
+        assert any('Sand Filter' in line['name'] for line in workspace['packages'][0]['prepared_lines'])

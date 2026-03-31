@@ -11,16 +11,19 @@ from app.services.heater_quote import (
     build_heater_package_preview,
     create_heater_quote_run,
     create_equipment_package_template_from_builder,
+    create_equipment_package_template_from_wizard,
     create_manual_equipment_package_template,
     delete_equipment_package_template,
     delete_heater_quote_run,
     get_equipment_family_builder_catalog,
+    get_equipment_family_builder_wizard_catalog,
     get_equipment_package_template_summary,
     get_heater_quote_dashboard_summary,
     get_heater_quote_settings,
     get_quote_case_equipment_package_workspace,
     list_equipment_package_templates,
     build_equipment_package_template_from_builder_preview,
+    build_equipment_package_template_from_wizard_preview,
     list_heater_quote_runs,
     reset_heater_package_lines,
     save_heater_package_template,
@@ -140,6 +143,18 @@ class EquipmentPackageBuilderBody(BaseModel):
     include_controller_integration: bool | None = None
     misc_materials_amount: float = 0.0
     labor_rate_override: float | None = None
+
+
+class EquipmentPackageWizardBody(BaseModel):
+    template_name: str = ''
+    package_kind: str
+    wizard_inputs: dict[str, object] = Field(default_factory=dict)
+    equipment_unit_price: float = 0.0
+    quantity: int = Field(default=1, ge=1, le=24)
+    saved_by: str = 'operator'
+    template_description: str = ''
+    labor_profile: str = 'standard'
+    misc_materials_amount: float = 0.0
 
 
 
@@ -310,6 +325,12 @@ def equipment_package_builders():
         return get_equipment_family_builder_catalog(session)
 
 
+@router.get('/builders/wizard-catalog')
+def equipment_package_builder_wizard_catalog():
+    with Session(engine) as session:
+        return get_equipment_family_builder_wizard_catalog(session)
+
+
 @router.post('/templates/builder-preview')
 def build_equipment_package_template_preview_route(body: EquipmentPackageBuilderBody):
     with Session(engine) as session:
@@ -336,6 +357,46 @@ def build_equipment_package_template_preview_route(body: EquipmentPackageBuilder
                 include_controller_integration=body.include_controller_integration,
                 misc_materials_amount=body.misc_materials_amount,
                 labor_rate_override=body.labor_rate_override,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post('/templates/wizard-preview')
+def build_equipment_package_template_from_wizard_preview_route(body: EquipmentPackageWizardBody):
+    with Session(engine) as session:
+        try:
+            return build_equipment_package_template_from_wizard_preview(
+                session,
+                package_kind=body.package_kind,
+                wizard_inputs=body.wizard_inputs,
+                equipment_unit_price=body.equipment_unit_price,
+                quantity=body.quantity,
+                saved_by=body.saved_by,
+                template_name=body.template_name,
+                template_description=body.template_description,
+                labor_profile=body.labor_profile,
+                misc_materials_amount=body.misc_materials_amount,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post('/templates/wizard')
+def create_equipment_package_template_from_wizard_route(body: EquipmentPackageWizardBody):
+    with Session(engine) as session:
+        try:
+            return create_equipment_package_template_from_wizard(
+                session,
+                template_name=body.template_name,
+                package_kind=body.package_kind,
+                wizard_inputs=body.wizard_inputs,
+                equipment_unit_price=body.equipment_unit_price,
+                quantity=body.quantity,
+                saved_by=body.saved_by,
+                template_description=body.template_description,
+                labor_profile=body.labor_profile,
+                misc_materials_amount=body.misc_materials_amount,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -404,9 +404,296 @@ DEFAULT_EQUIPMENT_FAMILY_BUILDER_CONFIG: dict[str, Any] = {
     },
 }
 
+DEFAULT_EQUIPMENT_FAMILY_WIZARD_CONFIG: dict[str, Any] = {
+    'version': 'platform_block_2g_builder_input_wizards',
+    'families': {
+        'pump': {
+            'label': 'Pump input wizard',
+            'default_template_name': 'Pump package template',
+            'fields': [
+                {'name': 'pump_style', 'label': 'Pump style', 'type': 'enum', 'options': ['variable_speed', 'single_speed'], 'default': 'variable_speed'},
+                {'name': 'horsepower', 'label': 'Horsepower', 'type': 'float', 'default': 3.0, 'step': 0.5, 'minimum': 0.5},
+                {'name': 'voltage', 'label': 'Voltage', 'type': 'enum', 'options': ['230V', '208-230V', '115V'], 'default': '230V'},
+                {'name': 'plumbing_size_in', 'label': 'Plumbing size (in)', 'type': 'float', 'default': 2.0, 'step': 0.5, 'minimum': 1.0},
+                {'name': 'union_size_in', 'label': 'Union size (in)', 'type': 'float', 'default': 2.0, 'step': 0.5, 'minimum': 1.0},
+                {'name': 'automation_integration', 'label': 'Automation integration', 'type': 'bool', 'default': True},
+            ],
+        },
+        'filter': {
+            'label': 'Filter input wizard',
+            'default_template_name': 'Filter package template',
+            'fields': [
+                {'name': 'filter_style', 'label': 'Filter style', 'type': 'enum', 'options': ['cartridge', 'sand'], 'default': 'cartridge'},
+                {'name': 'filter_area_sqft', 'label': 'Filter area (sqft)', 'type': 'float', 'default': 420.0, 'step': 20.0, 'minimum': 100.0},
+                {'name': 'tank_diameter_in', 'label': 'Tank diameter (in)', 'type': 'float', 'default': 30.0, 'step': 1.0, 'minimum': 18.0},
+                {'name': 'target_flow_gpm', 'label': 'Target flow (GPM)', 'type': 'float', 'default': 75.0, 'step': 5.0, 'minimum': 10.0},
+                {'name': 'include_media_charge', 'label': 'Include media charge', 'type': 'bool', 'default': True},
+            ],
+        },
+        'salt_system': {
+            'label': 'Salt system input wizard',
+            'default_template_name': 'Salt system package template',
+            'fields': [
+                {'name': 'system_mode', 'label': 'Salt system mode', 'type': 'enum', 'options': ['conversion', 'cell_replacement'], 'default': 'conversion'},
+                {'name': 'pool_gallons', 'label': 'Pool gallons', 'type': 'float', 'default': 15000.0, 'step': 500.0, 'minimum': 1000.0},
+                {'name': 'oversize_factor', 'label': 'Oversize factor', 'type': 'float', 'default': 1.5, 'step': 0.1, 'minimum': 1.0},
+                {'name': 'automation_compatible', 'label': 'Automation compatible', 'type': 'bool', 'default': False},
+                {'name': 'include_startup_salt', 'label': 'Include startup salt', 'type': 'bool', 'default': True},
+            ],
+        },
+        'automation': {
+            'label': 'Automation input wizard',
+            'default_template_name': 'Automation package template',
+            'fields': [
+                {'name': 'panel_family', 'label': 'Panel family', 'type': 'enum', 'options': ['Jandy', 'Pentair', 'Hayward', 'Generic'], 'default': 'Generic'},
+                {'name': 'relay_count', 'label': 'Relay count', 'type': 'int', 'default': 4, 'step': 1, 'minimum': 1},
+                {'name': 'valve_count', 'label': 'Valve count', 'type': 'int', 'default': 2, 'step': 1, 'minimum': 0},
+                {'name': 'body_count', 'label': 'Body count', 'type': 'int', 'default': 1, 'step': 1, 'minimum': 1},
+                {'name': 'include_heater_integration', 'label': 'Include heater integration', 'type': 'bool', 'default': True},
+                {'name': 'include_salt_integration', 'label': 'Include salt integration', 'type': 'bool', 'default': False},
+                {'name': 'include_wifi_bridge', 'label': 'Include Wi-Fi / app bridge', 'type': 'bool', 'default': True},
+            ],
+        },
+    },
+}
+
+
 
 def get_equipment_family_builder_catalog(session: Session | None = None) -> dict[str, Any]:
     return loads(dumps(DEFAULT_EQUIPMENT_FAMILY_BUILDER_CONFIG), {})
+
+
+def get_equipment_family_builder_wizard_catalog(session: Session | None = None) -> dict[str, Any]:
+    return loads(dumps(DEFAULT_EQUIPMENT_FAMILY_WIZARD_CONFIG), {})
+
+
+def _resolve_equipment_family_builder_wizard(package_kind: str) -> dict[str, Any]:
+    catalog = get_equipment_family_builder_wizard_catalog()
+    families = catalog.get('families', {}) if isinstance(catalog.get('families'), dict) else {}
+    normalized_kind = _normalize_template_package_kind(package_kind)
+    family = families.get(normalized_kind)
+    if not isinstance(family, dict):
+        raise ValueError('Unsupported equipment package wizard family')
+    return family
+
+
+def _normalize_equipment_family_wizard_inputs(package_kind: str, wizard_inputs: dict[str, Any] | None) -> dict[str, Any]:
+    family = _resolve_equipment_family_builder_wizard(package_kind)
+    incoming = wizard_inputs if isinstance(wizard_inputs, dict) else {}
+    normalized: dict[str, Any] = {}
+    for field in family.get('fields', []):
+        if not isinstance(field, dict):
+            continue
+        name = str(field.get('name') or '').strip()
+        if not name:
+            continue
+        field_type = str(field.get('type') or 'text')
+        default = field.get('default')
+        raw_value = incoming.get(name, default)
+        if field_type == 'bool':
+            normalized[name] = bool(raw_value)
+        elif field_type == 'int':
+            try:
+                normalized[name] = int(raw_value)
+            except (TypeError, ValueError):
+                normalized[name] = int(default or 0)
+        elif field_type == 'float':
+            try:
+                normalized[name] = float(raw_value)
+            except (TypeError, ValueError):
+                normalized[name] = float(default or 0.0)
+        else:
+            normalized[name] = str(raw_value or default or '').strip()
+    return normalized
+
+
+def _derive_builder_parameters_from_wizard(package_kind: str, wizard_inputs: dict[str, Any]) -> dict[str, Any]:
+    normalized_kind = _normalize_template_package_kind(package_kind)
+    data = _normalize_equipment_family_wizard_inputs(normalized_kind, wizard_inputs)
+
+    if normalized_kind == 'pump':
+        pump_style = str(data.get('pump_style') or 'variable_speed')
+        horsepower = float(data.get('horsepower') or 0)
+        voltage = str(data.get('voltage') or '230V')
+        plumbing_size = float(data.get('plumbing_size_in') or 0)
+        union_size = float(data.get('union_size_in') or 0)
+        automation_integration = bool(data.get('automation_integration'))
+        equipment_name = f"{horsepower:g} HP {'Variable Speed' if pump_style == 'variable_speed' else 'Single Speed'} Pump ({voltage})"
+        return {
+            'builder_profile': 'variable_speed_upgrade' if pump_style == 'variable_speed' else 'single_speed_swap',
+            'equipment_name': equipment_name,
+            'wizard_summary': f"{plumbing_size:g} in plumbing, {union_size:g} in unions, {voltage}",
+            'builder_options': {
+                'include_controller_integration': automation_integration,
+            },
+            'wizard_inputs': data,
+        }
+
+    if normalized_kind == 'filter':
+        filter_style = str(data.get('filter_style') or 'cartridge')
+        flow = float(data.get('target_flow_gpm') or 0)
+        filter_area = float(data.get('filter_area_sqft') or 0)
+        tank_diameter = float(data.get('tank_diameter_in') or 0)
+        include_media = bool(data.get('include_media_charge'))
+        if filter_style == 'sand':
+            equipment_name = f"{tank_diameter:g} in Sand Filter"
+            builder_profile = 'sand_filter_replacement'
+        else:
+            equipment_name = f"{filter_area:g} sqft Cartridge Filter"
+            builder_profile = 'cartridge_replacement'
+        return {
+            'builder_profile': builder_profile,
+            'equipment_name': equipment_name,
+            'wizard_summary': f"Target flow {flow:g} GPM",
+            'builder_options': {
+                'include_media_charge': include_media,
+            },
+            'wizard_inputs': data,
+        }
+
+    if normalized_kind == 'salt_system':
+        system_mode = str(data.get('system_mode') or 'conversion')
+        pool_gallons = float(data.get('pool_gallons') or 0)
+        oversize_factor = float(data.get('oversize_factor') or 1.0)
+        automation_compatible = bool(data.get('automation_compatible'))
+        include_startup_salt = bool(data.get('include_startup_salt'))
+        rated_gallons = int(round(pool_gallons * oversize_factor / 1000.0) * 1000)
+        if rated_gallons <= 0:
+            rated_gallons = int(pool_gallons)
+        equipment_name = (
+            f"Replacement Salt Cell rated for {rated_gallons:,} gal"
+            if system_mode == 'cell_replacement'
+            else f"Salt System rated for {rated_gallons:,} gal"
+        )
+        return {
+            'builder_profile': 'cell_replacement' if system_mode == 'cell_replacement' else 'salt_conversion',
+            'equipment_name': equipment_name,
+            'wizard_summary': f"Pool {pool_gallons:,.0f} gal, oversize factor {oversize_factor:g}",
+            'builder_options': {
+                'include_controller_integration': automation_compatible,
+                'include_salt_charge': include_startup_salt,
+            },
+            'wizard_inputs': data,
+        }
+
+    if normalized_kind == 'automation':
+        panel_family = str(data.get('panel_family') or 'Generic')
+        relay_count = int(data.get('relay_count') or 0)
+        valve_count = int(data.get('valve_count') or 0)
+        body_count = int(data.get('body_count') or 1)
+        include_heater_integration = bool(data.get('include_heater_integration'))
+        include_salt_integration = bool(data.get('include_salt_integration'))
+        include_wifi_bridge = bool(data.get('include_wifi_bridge'))
+        builder_profile = 'panel_upgrade' if body_count > 1 or relay_count >= 5 else 'automation_addon'
+        equipment_name = f"{panel_family} Automation Panel ({relay_count} relays, {body_count} body)"
+        return {
+            'builder_profile': builder_profile,
+            'equipment_name': equipment_name,
+            'wizard_summary': f"{valve_count} valves, heater integration {'yes' if include_heater_integration else 'no'}, salt integration {'yes' if include_salt_integration else 'no'}",
+            'builder_options': {
+                'include_relay_pack': relay_count >= 5,
+                'include_actuator_pack': valve_count > 0,
+                'include_controller_integration': include_heater_integration or include_salt_integration or include_wifi_bridge,
+            },
+            'wizard_inputs': data,
+        }
+
+    raise ValueError('Unsupported equipment package wizard family')
+
+
+def build_equipment_package_template_from_wizard_preview(
+    session: Session,
+    *,
+    package_kind: str,
+    wizard_inputs: dict[str, Any] | None,
+    equipment_unit_price: float,
+    quantity: int = 1,
+    saved_by: str = 'operator',
+    template_name: str = '',
+    template_description: str = '',
+    labor_profile: str | None = None,
+    misc_materials_amount: float = 0.0,
+) -> dict[str, Any]:
+    resolved = _derive_builder_parameters_from_wizard(package_kind, wizard_inputs or {})
+    preview = build_equipment_package_template_from_builder_preview(
+        session,
+        package_kind=package_kind,
+        builder_profile=resolved['builder_profile'],
+        equipment_name=resolved['equipment_name'],
+        equipment_unit_price=equipment_unit_price,
+        quantity=quantity,
+        saved_by=saved_by,
+        template_description=(template_description or resolved.get('wizard_summary') or '').strip(),
+        labor_profile=labor_profile,
+        misc_materials_amount=misc_materials_amount,
+        **resolved.get('builder_options', {}),
+    )
+    preview['wizard_inputs'] = resolved.get('wizard_inputs', {})
+    preview['wizard_summary'] = resolved.get('wizard_summary', '')
+    preview['resolved_builder_profile'] = resolved.get('builder_profile', '')
+    preview['suggested_equipment_name'] = resolved.get('equipment_name', '')
+    preview['suggested_template_name'] = template_name or f"{_resolve_equipment_family_builder_wizard(package_kind).get('default_template_name', str(package_kind).title())}"
+    return preview
+
+
+def create_equipment_package_template_from_wizard(
+    session: Session,
+    *,
+    template_name: str,
+    package_kind: str,
+    wizard_inputs: dict[str, Any] | None,
+    equipment_unit_price: float,
+    quantity: int = 1,
+    saved_by: str = 'operator',
+    template_description: str = '',
+    labor_profile: str | None = None,
+    misc_materials_amount: float = 0.0,
+) -> dict[str, Any]:
+    preview = build_equipment_package_template_from_wizard_preview(
+        session,
+        package_kind=package_kind,
+        wizard_inputs=wizard_inputs,
+        equipment_unit_price=equipment_unit_price,
+        quantity=quantity,
+        saved_by=saved_by,
+        template_name=template_name,
+        template_description=template_description,
+        labor_profile=labor_profile,
+        misc_materials_amount=misc_materials_amount,
+    )
+    existing = _get_equipment_package_templates(session)
+    template_slug = _next_available_template_slug(existing, _slugify_template_name(template_name or f"{preview['package_kind']}-wizard-package"))
+    now_iso = datetime.utcnow().isoformat()
+    template = {
+        'template_slug': template_slug,
+        'template_name': str(template_name or preview.get('suggested_template_name') or f"{preview['package_kind']} package template").strip(),
+        'package_kind': preview['package_kind'],
+        'saved_by': saved_by,
+        'created_at': now_iso,
+        'updated_at': now_iso,
+        'source_quote_case_id': None,
+        'source_external_link_id': None,
+        'candidate': {},
+        'package_summary': preview['package_summary'],
+        'prepared_lines': preview['prepared_lines'],
+        'original_prepared_lines': preview['prepared_lines'],
+        'template_description': template_description,
+        'builder_profile': preview.get('resolved_builder_profile', ''),
+        'wizard_inputs': preview.get('wizard_inputs', {}),
+        'wizard_summary': preview.get('wizard_summary', ''),
+    }
+    templates = existing + [template]
+    set_setting(
+        session,
+        'equipment_package_templates',
+        {'version': DEFAULT_EQUIPMENT_PACKAGE_TEMPLATE_CONFIG['version'], 'templates': templates},
+        'Reusable equipment package templates saved from attached quote packages and later applied back into quote cases.',
+    )
+    return {
+        'saved_template': template,
+        'template_summary': get_equipment_package_template_summary(session),
+        'wizard_preview': preview,
+    }
 
 
 
