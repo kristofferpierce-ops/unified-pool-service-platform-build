@@ -458,6 +458,124 @@ DEFAULT_EQUIPMENT_FAMILY_WIZARD_CONFIG: dict[str, Any] = {
 }
 
 
+DEFAULT_EQUIPMENT_SELECTOR_CATALOG: dict[str, Any] = {
+    'version': 'platform_block_2h_catalog_selectors',
+    'families': {
+        'pump': {
+            'label': 'Pump selector catalog',
+            'compatibility_fields': [
+                {'name': 'voltage', 'label': 'Voltage', 'type': 'enum', 'options': ['115V', '208-230V', '230V'], 'default': '230V'},
+                {'name': 'plumbing_size_in', 'label': 'Plumbing size (in)', 'type': 'float', 'default': 2.0, 'step': 0.5, 'minimum': 1.0},
+                {'name': 'speed_type', 'label': 'Speed type', 'type': 'enum', 'options': ['single_speed', 'variable_speed'], 'default': 'variable_speed'},
+            ],
+            'items': [
+                {
+                    'item_slug': 'pump-vs-3hp-230',
+                    'label': '3 HP Variable Speed Pump 230V',
+                    'equipment_name': '3 HP Variable Speed Pump',
+                    'default_unit_price': 2450.0,
+                    'builder_profile': 'variable_speed_upgrade',
+                    'builder_options': {'include_controller_integration': True},
+                    'selector_tags': {'voltage': '230V', 'speed_type': 'variable_speed', 'min_plumbing_size_in': 2.0},
+                },
+                {
+                    'item_slug': 'pump-single-1hp-115',
+                    'label': '1 HP Single Speed Pump 115V',
+                    'equipment_name': '1 HP Single Speed Pump',
+                    'default_unit_price': 925.0,
+                    'builder_profile': 'single_speed_swap',
+                    'builder_options': {'include_controller_integration': False},
+                    'selector_tags': {'voltage': '115V', 'speed_type': 'single_speed', 'min_plumbing_size_in': 1.5},
+                },
+            ],
+        },
+        'filter': {
+            'label': 'Filter selector catalog',
+            'compatibility_fields': [
+                {'name': 'filter_style', 'label': 'Filter style', 'type': 'enum', 'options': ['cartridge', 'sand'], 'default': 'cartridge'},
+                {'name': 'target_flow_gpm', 'label': 'Target flow (GPM)', 'type': 'float', 'default': 80.0, 'step': 5.0, 'minimum': 10.0},
+            ],
+            'items': [
+                {
+                    'item_slug': 'filter-cartridge-425',
+                    'label': '425 sqft Cartridge Filter',
+                    'equipment_name': '425 sqft Cartridge Filter',
+                    'default_unit_price': 1650.0,
+                    'builder_profile': 'cartridge_replacement',
+                    'builder_options': {'include_media_charge': False},
+                    'selector_tags': {'filter_style': 'cartridge', 'max_flow_gpm': 100.0},
+                },
+                {
+                    'item_slug': 'filter-sand-30',
+                    'label': '30 in Sand Filter',
+                    'equipment_name': '30 in Sand Filter',
+                    'default_unit_price': 1550.0,
+                    'builder_profile': 'sand_filter_replacement',
+                    'builder_options': {'include_media_charge': True},
+                    'selector_tags': {'filter_style': 'sand', 'max_flow_gpm': 90.0},
+                },
+            ],
+        },
+        'salt_system': {
+            'label': 'Salt system selector catalog',
+            'compatibility_fields': [
+                {'name': 'pool_gallons', 'label': 'Pool gallons', 'type': 'float', 'default': 18000.0, 'step': 500.0, 'minimum': 1000.0},
+                {'name': 'automation_compatible', 'label': 'Automation compatible', 'type': 'bool', 'default': False},
+            ],
+            'items': [
+                {
+                    'item_slug': 'salt-cell-25k',
+                    'label': 'Replacement Salt Cell rated for 25,000 gal',
+                    'equipment_name': 'Replacement Salt Cell rated for 25,000 gal',
+                    'default_unit_price': 999.0,
+                    'builder_profile': 'cell_replacement',
+                    'builder_options': {'include_salt_charge': False, 'include_controller_integration': False},
+                    'selector_tags': {'max_pool_gallons': 25000.0, 'automation_required': False},
+                },
+                {
+                    'item_slug': 'salt-system-40k-auto',
+                    'label': 'Salt System rated for 40,000 gal with automation support',
+                    'equipment_name': 'Salt System rated for 40,000 gal',
+                    'default_unit_price': 1895.0,
+                    'builder_profile': 'salt_conversion',
+                    'builder_options': {'include_salt_charge': True, 'include_controller_integration': True},
+                    'selector_tags': {'max_pool_gallons': 40000.0, 'automation_required': True},
+                },
+            ],
+        },
+        'automation': {
+            'label': 'Automation selector catalog',
+            'compatibility_fields': [
+                {'name': 'relay_count', 'label': 'Relay count needed', 'type': 'int', 'default': 4, 'step': 1, 'minimum': 1},
+                {'name': 'body_count', 'label': 'Body count', 'type': 'int', 'default': 1, 'step': 1, 'minimum': 1},
+                {'name': 'include_heater_integration', 'label': 'Include heater integration', 'type': 'bool', 'default': True},
+                {'name': 'include_salt_integration', 'label': 'Include salt integration', 'type': 'bool', 'default': False},
+            ],
+            'items': [
+                {
+                    'item_slug': 'automation-4relay',
+                    'label': '4 Relay Automation Panel',
+                    'equipment_name': '4 Relay Automation Panel',
+                    'default_unit_price': 1895.0,
+                    'builder_profile': 'automation_addon',
+                    'builder_options': {'include_relay_pack': False, 'include_actuator_pack': True, 'include_controller_integration': True},
+                    'selector_tags': {'minimum_relays': 4, 'minimum_bodies': 1, 'heater_support': True, 'salt_support': False},
+                },
+                {
+                    'item_slug': 'automation-8relay',
+                    'label': '8 Relay Dual Body Automation Panel',
+                    'equipment_name': '8 Relay Dual Body Automation Panel',
+                    'default_unit_price': 2895.0,
+                    'builder_profile': 'panel_upgrade',
+                    'builder_options': {'include_relay_pack': True, 'include_actuator_pack': True, 'include_controller_integration': True},
+                    'selector_tags': {'minimum_relays': 8, 'minimum_bodies': 2, 'heater_support': True, 'salt_support': True},
+                },
+            ],
+        },
+    },
+}
+
+
 
 def get_equipment_family_builder_catalog(session: Session | None = None) -> dict[str, Any]:
     return loads(dumps(DEFAULT_EQUIPMENT_FAMILY_BUILDER_CONFIG), {})
@@ -466,6 +584,228 @@ def get_equipment_family_builder_catalog(session: Session | None = None) -> dict
 def get_equipment_family_builder_wizard_catalog(session: Session | None = None) -> dict[str, Any]:
     return loads(dumps(DEFAULT_EQUIPMENT_FAMILY_WIZARD_CONFIG), {})
 
+def get_equipment_selector_catalog(session: Session | None = None) -> dict[str, Any]:
+    return loads(dumps(DEFAULT_EQUIPMENT_SELECTOR_CATALOG), {})
+
+
+
+
+def _resolve_equipment_selector_family(package_kind: str) -> dict[str, Any]:
+    catalog = get_equipment_selector_catalog()
+    families = catalog.get('families', {}) if isinstance(catalog.get('families'), dict) else {}
+    normalized_kind = _normalize_template_package_kind(package_kind)
+    family = families.get(normalized_kind)
+    if not isinstance(family, dict):
+        raise ValueError('Unsupported equipment selector family')
+    return family
+
+
+def _normalize_equipment_selector_context(package_kind: str, compatibility_context: dict[str, Any] | None) -> dict[str, Any]:
+    family = _resolve_equipment_selector_family(package_kind)
+    incoming = compatibility_context if isinstance(compatibility_context, dict) else {}
+    normalized: dict[str, Any] = {}
+    for field in family.get('compatibility_fields', []):
+        if not isinstance(field, dict):
+            continue
+        name = str(field.get('name') or '').strip()
+        if not name:
+            continue
+        field_type = str(field.get('type') or 'text')
+        default = field.get('default')
+        raw_value = incoming.get(name, default)
+        if field_type == 'bool':
+            normalized[name] = bool(raw_value)
+        elif field_type == 'int':
+            try:
+                normalized[name] = int(raw_value)
+            except (TypeError, ValueError):
+                normalized[name] = int(default or 0)
+        elif field_type == 'float':
+            try:
+                normalized[name] = float(raw_value)
+            except (TypeError, ValueError):
+                normalized[name] = float(default or 0.0)
+        else:
+            normalized[name] = str(raw_value or default or '').strip()
+    return normalized
+
+
+def _resolve_equipment_selector_item(package_kind: str, item_slug: str) -> tuple[dict[str, Any], dict[str, Any], str]:
+    family = _resolve_equipment_selector_family(package_kind)
+    normalized_kind = _normalize_template_package_kind(package_kind)
+    item_slug = str(item_slug or '').strip()
+    items = family.get('items', []) if isinstance(family.get('items'), list) else []
+    for item in items:
+        if isinstance(item, dict) and str(item.get('item_slug') or '') == item_slug:
+            return family, item, normalized_kind
+    raise ValueError('Equipment selector item not found')
+
+
+def evaluate_equipment_selector_compatibility(package_kind: str, item_slug: str, compatibility_context: dict[str, Any] | None = None) -> dict[str, Any]:
+    family, item, normalized_kind = _resolve_equipment_selector_item(package_kind, item_slug)
+    context = _normalize_equipment_selector_context(normalized_kind, compatibility_context)
+    tags = item.get('selector_tags', {}) if isinstance(item.get('selector_tags'), dict) else {}
+    issues: list[str] = []
+    warnings: list[str] = []
+
+    if normalized_kind == 'pump':
+        expected_voltage = str(tags.get('voltage') or '').strip()
+        if expected_voltage and str(context.get('voltage') or '') != expected_voltage:
+            issues.append(f"Requires {expected_voltage}, but selector context is {context.get('voltage') or 'unspecified'}.")
+        expected_speed = str(tags.get('speed_type') or '').strip()
+        if expected_speed and str(context.get('speed_type') or '') != expected_speed:
+            issues.append(f"Requires {expected_speed.replace('_', ' ')}, but selector context is {str(context.get('speed_type') or 'unspecified').replace('_', ' ')}.")
+        min_plumbing = float(tags.get('min_plumbing_size_in') or 0)
+        if float(context.get('plumbing_size_in') or 0) < min_plumbing:
+            issues.append(f"Needs at least {min_plumbing:g} in plumbing, but selector context is {float(context.get('plumbing_size_in') or 0):g} in.")
+
+    elif normalized_kind == 'filter':
+        expected_style = str(tags.get('filter_style') or '').strip()
+        if expected_style and str(context.get('filter_style') or '') != expected_style:
+            issues.append(f"Designed for {expected_style} applications, but selector context is {context.get('filter_style') or 'unspecified'}.")
+        max_flow = float(tags.get('max_flow_gpm') or 0)
+        target_flow = float(context.get('target_flow_gpm') or 0)
+        if max_flow and target_flow > max_flow:
+            issues.append(f"Target flow {target_flow:g} GPM exceeds selector limit of {max_flow:g} GPM.")
+        elif max_flow and target_flow > max_flow * 0.9:
+            warnings.append(f"Target flow {target_flow:g} GPM is close to the selector limit of {max_flow:g} GPM.")
+
+    elif normalized_kind == 'salt_system':
+        max_gallons = float(tags.get('max_pool_gallons') or 0)
+        pool_gallons = float(context.get('pool_gallons') or 0)
+        if max_gallons and pool_gallons > max_gallons:
+            issues.append(f"Pool {pool_gallons:,.0f} gal exceeds selector rating of {max_gallons:,.0f} gal.")
+        if bool(tags.get('automation_required')) and not bool(context.get('automation_compatible')):
+            issues.append('Selector item requires automation-compatible installation.')
+
+    elif normalized_kind == 'automation':
+        min_relays = int(tags.get('minimum_relays') or 0)
+        relay_count = int(context.get('relay_count') or 0)
+        if min_relays and relay_count < min_relays:
+            issues.append(f"Needs at least {min_relays} relays, but selector context is {relay_count}.")
+        min_bodies = int(tags.get('minimum_bodies') or 0)
+        body_count = int(context.get('body_count') or 0)
+        if min_bodies and body_count < min_bodies:
+            issues.append(f"Needs at least {min_bodies} body circuits, but selector context is {body_count}.")
+        if bool(context.get('include_heater_integration')) and not bool(tags.get('heater_support', False)):
+            issues.append('Selector item does not support heater integration.')
+        if bool(context.get('include_salt_integration')) and not bool(tags.get('salt_support', False)):
+            issues.append('Selector item does not support salt integration.')
+
+    return {
+        'package_kind': normalized_kind,
+        'item_slug': str(item.get('item_slug') or ''),
+        'item_label': str(item.get('label') or item.get('equipment_name') or ''),
+        'compatible': not issues,
+        'issues': issues,
+        'warnings': warnings,
+        'normalized_context': context,
+    }
+
+
+def build_equipment_package_template_from_selector_preview(
+    session: Session,
+    *,
+    package_kind: str,
+    item_slug: str,
+    quantity: int = 1,
+    saved_by: str = 'operator',
+    template_name: str = '',
+    template_description: str = '',
+    labor_profile: str | None = None,
+    compatibility_context: dict[str, Any] | None = None,
+    misc_materials_amount: float = 0.0,
+) -> dict[str, Any]:
+    family, item, normalized_kind = _resolve_equipment_selector_item(package_kind, item_slug)
+    compatibility = evaluate_equipment_selector_compatibility(normalized_kind, item_slug, compatibility_context)
+    preview = build_equipment_package_template_from_builder_preview(
+        session,
+        package_kind=normalized_kind,
+        builder_profile=str(item.get('builder_profile') or ''),
+        equipment_name=str(item.get('equipment_name') or item.get('label') or 'Equipment').strip(),
+        equipment_unit_price=float(item.get('default_unit_price') or 0),
+        quantity=quantity,
+        saved_by=saved_by,
+        template_description=(template_description or str(item.get('label') or '')).strip(),
+        labor_profile=labor_profile,
+        misc_materials_amount=misc_materials_amount,
+        **(item.get('builder_options') if isinstance(item.get('builder_options'), dict) else {}),
+    )
+    preview['selector_item'] = {
+        'item_slug': str(item.get('item_slug') or ''),
+        'label': str(item.get('label') or ''),
+        'equipment_name': str(item.get('equipment_name') or ''),
+        'default_unit_price': float(item.get('default_unit_price') or 0),
+    }
+    preview['compatibility'] = compatibility
+    preview['suggested_template_name'] = template_name or f"{str(item.get('label') or family.get('label') or normalized_kind.title()).strip()} template"
+    return preview
+
+
+def create_equipment_package_template_from_selector(
+    session: Session,
+    *,
+    template_name: str,
+    package_kind: str,
+    item_slug: str,
+    quantity: int = 1,
+    saved_by: str = 'operator',
+    template_description: str = '',
+    labor_profile: str | None = None,
+    compatibility_context: dict[str, Any] | None = None,
+    misc_materials_amount: float = 0.0,
+) -> dict[str, Any]:
+    preview = build_equipment_package_template_from_selector_preview(
+        session,
+        package_kind=package_kind,
+        item_slug=item_slug,
+        quantity=quantity,
+        saved_by=saved_by,
+        template_name=template_name,
+        template_description=template_description,
+        labor_profile=labor_profile,
+        compatibility_context=compatibility_context,
+        misc_materials_amount=misc_materials_amount,
+    )
+    compatibility = preview.get('compatibility', {}) if isinstance(preview.get('compatibility'), dict) else {}
+    if not bool(compatibility.get('compatible')):
+        joined = '; '.join(str(item) for item in compatibility.get('issues', []) if str(item).strip()) or 'Selected catalog item is incompatible.'
+        raise ValueError(joined)
+    existing = _get_equipment_package_templates(session)
+    template_slug = _next_available_template_slug(existing, _slugify_template_name(template_name or f"{preview['package_kind']}-selector-package"))
+    now_iso = datetime.utcnow().isoformat()
+    selector_item = preview.get('selector_item', {}) if isinstance(preview.get('selector_item'), dict) else {}
+    template = {
+        'template_slug': template_slug,
+        'template_name': str(template_name or preview.get('suggested_template_name') or f"{preview['package_kind']} selector template").strip(),
+        'package_kind': preview['package_kind'],
+        'saved_by': saved_by,
+        'created_at': now_iso,
+        'updated_at': now_iso,
+        'source_quote_case_id': None,
+        'source_external_link_id': None,
+        'candidate': {},
+        'package_summary': preview['package_summary'],
+        'prepared_lines': preview['prepared_lines'],
+        'original_prepared_lines': preview['prepared_lines'],
+        'template_description': template_description,
+        'selector_item': selector_item,
+        'compatibility_context': compatibility.get('normalized_context', {}),
+        'builder_profile': preview.get('builder_profile', ''),
+        'builder_profile_label': preview.get('builder_profile_label', ''),
+    }
+    templates = existing + [template]
+    set_setting(
+        session,
+        'equipment_package_templates',
+        {'version': DEFAULT_EQUIPMENT_PACKAGE_TEMPLATE_CONFIG['version'], 'templates': templates},
+        'Reusable equipment package templates saved from attached quote packages and later applied back into quote cases.',
+    )
+    return {
+        'saved_template': template,
+        'template_summary': get_equipment_package_template_summary(session),
+        'selector_preview': preview,
+    }
 
 def _resolve_equipment_family_builder_wizard(package_kind: str) -> dict[str, Any]:
     catalog = get_equipment_family_builder_wizard_catalog()

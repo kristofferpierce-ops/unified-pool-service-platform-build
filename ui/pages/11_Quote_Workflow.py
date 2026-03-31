@@ -30,7 +30,7 @@ from app.services.freshbooks_sync import (
     refresh_quote_case_from_freshbooks,
     sync_quote_case_to_freshbooks,
 )
-from app.services.heater_quote import apply_equipment_package_template_to_quote_case, build_equipment_package_template_from_builder_preview, build_equipment_package_template_from_wizard_preview, create_equipment_package_template_from_builder, create_equipment_package_template_from_wizard, create_manual_equipment_package_template, delete_equipment_package_template, get_equipment_family_builder_catalog, get_equipment_family_builder_wizard_catalog, get_equipment_package_template_summary, get_quote_case_equipment_package_workspace, list_equipment_package_templates, remove_heater_package_from_quote_case, reset_heater_package_lines, save_heater_package_template, update_heater_package_lines
+from app.services.heater_quote import apply_equipment_package_template_to_quote_case, build_equipment_package_template_from_builder_preview, build_equipment_package_template_from_selector_preview, build_equipment_package_template_from_wizard_preview, create_equipment_package_template_from_builder, create_equipment_package_template_from_selector, create_equipment_package_template_from_wizard, create_manual_equipment_package_template, delete_equipment_package_template, get_equipment_family_builder_catalog, get_equipment_family_builder_wizard_catalog, get_equipment_selector_catalog, get_equipment_package_template_summary, get_quote_case_equipment_package_workspace, list_equipment_package_templates, remove_heater_package_from_quote_case, reset_heater_package_lines, save_heater_package_template, update_heater_package_lines
 from app.services.quote_workflow import (
     create_quote_case,
     get_dashboard_summary,
@@ -55,6 +55,7 @@ with Session(engine) as session:
     equipment_template_summary = get_equipment_package_template_summary(session)
     equipment_package_templates = list_equipment_package_templates(session)
     equipment_family_builder_catalog = get_equipment_family_builder_catalog(session)
+    equipment_selector_catalog = get_equipment_selector_catalog(session)
 
 pipeline_options = workflow_config.get('pipelines', [])
 pipeline_lookup = {item['slug']: item for item in pipeline_options}
@@ -259,6 +260,159 @@ else:
 
 
             with st.expander(f"Attached equipment packages for {case['quote_number']}", expanded=False):
+
+                with st.expander('Create catalog-backed equipment template', expanded=False):
+                        selector_catalog = equipment_selector_catalog if isinstance(equipment_selector_catalog, dict) else {}
+                        selector_families = selector_catalog.get('families', {}) if isinstance(selector_catalog.get('families'), dict) else {}
+                        selector_family_options = list(selector_families.keys()) or ['pump', 'filter', 'salt_system', 'automation']
+                        selector_family_col, selector_name_col = st.columns([1, 2])
+                        selector_family = selector_family_col.selectbox(
+                            'Selector family',
+                            options=selector_family_options,
+                            key=f'selector_family_{case["id"]}',
+                            format_func=lambda slug, families=selector_families: families.get(slug, {}).get('label', slug.replace('_', ' ').title()),
+                            help='Choose a family, then pick a catalog-backed selector item that resolves to a compatible package profile.',
+                        )
+                        selected_selector_family = selector_families.get(selector_family, {}) if isinstance(selector_families.get(selector_family), dict) else {}
+                        selector_items = selected_selector_family.get('items', []) if isinstance(selected_selector_family.get('items'), list) else []
+                        selector_item_lookup = {str(item.get('item_slug') or ''): item for item in selector_items if isinstance(item, dict)}
+                        selector_item_options = list(selector_item_lookup.keys())
+                        if selector_item_options:
+                            selector_item_slug = selector_name_col.selectbox(
+                                'Selector item',
+                                options=selector_item_options,
+                                key=f'selector_item_{case["id"]}',
+                                format_func=lambda slug, items=selector_item_lookup: items.get(slug, {}).get('label', slug),
+                                help='Choose a normalized selector item with compatibility rules and default pricing.',
+                            )
+                        else:
+                            selector_item_slug = ''
+                            selector_name_col.caption('No selector items are configured for this family yet.')
+                        selected_selector_item = selector_item_lookup.get(selector_item_slug, {}) if selector_item_slug else {}
+                        selector_template_name = st.text_input(
+                            'Selector template name',
+                            value=str(selected_selector_item.get('label') or selected_selector_family.get('label') or f'{selector_family.replace("_", " ").title()} selector template'),
+                            key=f'selector_template_name_{case["id"]}',
+                            help='Reusable template name created from the selected catalog-backed item.',
+                        )
+                        selector_fields = selected_selector_family.get('compatibility_fields', []) if isinstance(selected_selector_family.get('compatibility_fields'), list) else []
+                        selector_values = {}
+                        if selector_fields:
+                            selector_columns = st.columns(2)
+                            for index, field in enumerate(selector_fields):
+                                if not isinstance(field, dict):
+                                    continue
+                                name = str(field.get('name') or '').strip()
+                                if not name:
+                                    continue
+                                label = str(field.get('label') or name.replace('_', ' ').title())
+                                field_type = str(field.get('type') or 'text')
+                                key = f'selector_input_{case["id"]}_{selector_family}_{name}'
+                                column = selector_columns[index % 2]
+                                if field_type == 'bool':
+                                    selector_values[name] = column.checkbox(label, value=bool(field.get('default', False)), key=key)
+                                elif field_type == 'enum':
+                                    options = list(field.get('options') or [])
+                                    default_value = field.get('default') if field.get('default') in options else (options[0] if options else '')
+                                    selector_values[name] = column.selectbox(label, options=options, index=options.index(default_value) if default_value in options else 0, key=key) if options else ''
+                                elif field_type == 'int':
+                                    selector_values[name] = int(column.number_input(label, min_value=int(field.get('minimum', 0)), value=int(field.get('default', 0)), step=int(field.get('step', 1)), key=key))
+                                elif field_type == 'float':
+                                    selector_values[name] = float(column.number_input(label, min_value=float(field.get('minimum', 0.0)), value=float(field.get('default', 0.0)), step=float(field.get('step', 1.0)), key=key))
+                                else:
+                                    selector_values[name] = column.text_input(label, value=str(field.get('default', '')), key=key)
+                        selector_qty_col, selector_labor_col = st.columns([1, 1])
+                        selector_quantity = selector_qty_col.number_input(
+                            'Selector quantity',
+                            min_value=1,
+                            max_value=24,
+                            value=1,
+                            step=1,
+                            key=f'selector_quantity_{case["id"]}',
+                            help='How many complete selector-backed equipment units to include in the saved package.',
+                        )
+                        selector_labor_profiles = equipment_family_builder_catalog.get('labor_profiles', {}) if isinstance(equipment_family_builder_catalog, dict) else {}
+                        selector_labor_options = list(selector_labor_profiles.keys()) or ['standard']
+                        selector_labor_profile = selector_labor_col.selectbox(
+                            'Selector labor profile',
+                            options=selector_labor_options,
+                            key=f'selector_labor_profile_{case["id"]}',
+                            format_func=lambda slug, labor=selector_labor_profiles: labor.get(slug, {}).get('label', slug.replace('_', ' ').title()),
+                            help='Labor profile applied to the selector-generated package.',
+                        )
+                        selector_note = st.text_input(
+                            'Selector note',
+                            key=f'selector_note_{case["id"]}',
+                            help='Optional internal note saved with the selector-created package template.',
+                        )
+                        selector_misc_materials = st.number_input(
+                            'Selector miscellaneous materials allowance',
+                            min_value=0.0,
+                            value=0.0,
+                            step=25.0,
+                            key=f'selector_misc_materials_{case["id"]}',
+                            help='Optional extra materials allowance added to the selector-generated package.',
+                        )
+                        selector_preview_col, selector_save_col = st.columns([1, 1])
+                        if selector_preview_col.button('Preview selector package', key=f'preview_selector_package_{case["id"]}', help='Preview the selector-backed package lines before saving the reusable template.'):
+                            with Session(engine) as session:
+                                try:
+                                    selector_preview = build_equipment_package_template_from_selector_preview(
+                                        session,
+                                        package_kind=selector_family,
+                                        item_slug=selector_item_slug,
+                                        quantity=int(selector_quantity),
+                                        saved_by='streamlit_operator',
+                                        template_name=selector_template_name,
+                                        template_description=selector_note,
+                                        labor_profile=selector_labor_profile,
+                                        compatibility_context=selector_values,
+                                        misc_materials_amount=selector_misc_materials,
+                                    )
+                                except ValueError as exc:
+                                    st.error(str(exc))
+                                else:
+                                    compatibility = selector_preview.get('compatibility', {})
+                                    if compatibility.get('issues'):
+                                        st.error('Compatibility issues: ' + ' '.join(str(item) for item in compatibility.get('issues', [])))
+                                    elif compatibility.get('warnings'):
+                                        st.warning('Compatibility warnings: ' + ' '.join(str(item) for item in compatibility.get('warnings', [])))
+                                    else:
+                                        st.success('Selector item is compatible with the entered context.')
+                                    selector_rows = pd.DataFrame([
+                                        {
+                                            'Name': line.get('name'),
+                                            'Description': line.get('description'),
+                                            'Qty': line.get('qty'),
+                                            'Unit Price': line.get('amount'),
+                                            'Category': line.get('category'),
+                                        }
+                                        for line in selector_preview['prepared_lines']
+                                    ])
+                                    st.write('Selector preview')
+                                    st.dataframe(selector_rows, width='stretch')
+                                    preview_summary = selector_preview.get('package_summary', {})
+                                    selector_meta = selector_preview.get('selector_item', {})
+                                    st.caption(f"Selector item: {selector_meta.get('label', '')} · Preview total: {preview_summary.get('package_total', 0):,.2f} {preview_summary.get('currency_code', 'USD')}")
+                        if selector_save_col.button('Save selector package template', key=f'save_selector_package_template_{case["id"]}', help='Save the selected catalog-backed item as a reusable equipment package template when it is compatible with the entered context.'):
+                            with Session(engine) as session:
+                                try:
+                                    create_equipment_package_template_from_selector(
+                                        session,
+                                        template_name=selector_template_name or f'{selector_family.title()} selector template',
+                                        package_kind=selector_family,
+                                        item_slug=selector_item_slug,
+                                        quantity=int(selector_quantity),
+                                        saved_by='streamlit_operator',
+                                        template_description=selector_note,
+                                        labor_profile=selector_labor_profile,
+                                        compatibility_context=selector_values,
+                                        misc_materials_amount=selector_misc_materials,
+                                    )
+                                    st.success('Selector equipment package template saved.')
+                                except ValueError as exc:
+                                    st.error(str(exc))
+                            st.rerun()
 
                 with st.expander('Create equipment package from wizard', expanded=False):
                     wizard_catalog = get_equipment_family_builder_wizard_catalog(session)

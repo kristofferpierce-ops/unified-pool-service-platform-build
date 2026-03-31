@@ -12,11 +12,13 @@ from app.services.heater_quote import (
     create_heater_quote_run,
     create_equipment_package_template_from_builder,
     create_equipment_package_template_from_wizard,
+    create_equipment_package_template_from_selector,
     create_manual_equipment_package_template,
     delete_equipment_package_template,
     delete_heater_quote_run,
     get_equipment_family_builder_catalog,
     get_equipment_family_builder_wizard_catalog,
+    get_equipment_selector_catalog,
     get_equipment_package_template_summary,
     get_heater_quote_dashboard_summary,
     get_heater_quote_settings,
@@ -24,6 +26,7 @@ from app.services.heater_quote import (
     list_equipment_package_templates,
     build_equipment_package_template_from_builder_preview,
     build_equipment_package_template_from_wizard_preview,
+    build_equipment_package_template_from_selector_preview,
     list_heater_quote_runs,
     reset_heater_package_lines,
     save_heater_package_template,
@@ -154,6 +157,19 @@ class EquipmentPackageWizardBody(BaseModel):
     saved_by: str = 'operator'
     template_description: str = ''
     labor_profile: str = 'standard'
+    misc_materials_amount: float = 0.0
+
+
+
+class EquipmentSelectorBody(BaseModel):
+    template_name: str = ''
+    package_kind: str
+    item_slug: str
+    quantity: int = Field(default=1, ge=1, le=24)
+    saved_by: str = 'operator'
+    template_description: str = ''
+    labor_profile: str = 'standard'
+    compatibility_context: dict[str, object] = Field(default_factory=dict)
     misc_materials_amount: float = 0.0
 
 
@@ -331,6 +347,12 @@ def equipment_package_builder_wizard_catalog():
         return get_equipment_family_builder_wizard_catalog(session)
 
 
+@router.get('/builders/selector-catalog')
+def equipment_package_selector_catalog():
+    with Session(engine) as session:
+        return get_equipment_selector_catalog(session)
+
+
 @router.post('/templates/builder-preview')
 def build_equipment_package_template_preview_route(body: EquipmentPackageBuilderBody):
     with Session(engine) as session:
@@ -428,6 +450,46 @@ def create_equipment_package_template_from_builder_route(body: EquipmentPackageB
                 include_controller_integration=body.include_controller_integration,
                 misc_materials_amount=body.misc_materials_amount,
                 labor_rate_override=body.labor_rate_override,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post('/templates/selector-preview')
+def build_equipment_package_template_from_selector_preview_route(body: EquipmentSelectorBody):
+    with Session(engine) as session:
+        try:
+            return build_equipment_package_template_from_selector_preview(
+                session,
+                template_name=body.template_name,
+                package_kind=body.package_kind,
+                item_slug=body.item_slug,
+                quantity=body.quantity,
+                saved_by=body.saved_by,
+                template_description=body.template_description,
+                labor_profile=body.labor_profile,
+                compatibility_context=dict(body.compatibility_context),
+                misc_materials_amount=body.misc_materials_amount,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post('/templates/selector')
+def create_equipment_package_template_from_selector_route(body: EquipmentSelectorBody):
+    with Session(engine) as session:
+        try:
+            return create_equipment_package_template_from_selector(
+                session,
+                template_name=body.template_name,
+                package_kind=body.package_kind,
+                item_slug=body.item_slug,
+                quantity=body.quantity,
+                saved_by=body.saved_by,
+                template_description=body.template_description,
+                labor_profile=body.labor_profile,
+                compatibility_context=dict(body.compatibility_context),
+                misc_materials_amount=body.misc_materials_amount,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

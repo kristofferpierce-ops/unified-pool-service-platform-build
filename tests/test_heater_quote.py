@@ -13,11 +13,15 @@ from app.services.heater_quote import (
     create_heater_quote_run,
     apply_equipment_package_template_to_quote_case,
     build_equipment_package_template_from_builder_preview,
+    build_equipment_package_template_from_selector_preview,
     build_equipment_package_template_from_wizard_preview,
     create_equipment_package_template_from_builder,
+    create_equipment_package_template_from_selector,
     create_equipment_package_template_from_wizard,
+    evaluate_equipment_selector_compatibility,
     get_equipment_family_builder_catalog,
     get_equipment_family_builder_wizard_catalog,
+    get_equipment_selector_catalog,
     create_manual_equipment_package_template,
     delete_equipment_package_template,
     delete_heater_quote_run,
@@ -968,3 +972,91 @@ def test_apply_wizard_created_filter_template_to_quote_case_creates_attachment()
         assert workspace['package_count'] == 1
         assert workspace['packages'][0]['package_kind'] == 'filter'
         assert any('Sand Filter' in line['name'] for line in workspace['packages'][0]['prepared_lines'])
+
+
+
+def test_equipment_selector_catalog_lists_supported_families_and_items():
+    catalog = get_equipment_selector_catalog()
+    families = catalog.get('families', {})
+    assert {'pump', 'filter', 'salt_system', 'automation'} <= set(families.keys())
+    assert any(item.get('item_slug') == 'pump-vs-3hp-230' for item in families['pump'].get('items', []))
+
+
+
+def test_selector_preview_flags_incompatible_pump_voltage():
+    with Session(engine) as session:
+        preview = build_equipment_package_template_from_selector_preview(
+            session,
+            package_kind='pump',
+            item_slug='pump-vs-3hp-230',
+            quantity=1,
+            saved_by='pytest',
+            template_name='Pump Selector Preview',
+            labor_profile='standard',
+            compatibility_context={
+                'voltage': '115V',
+                'plumbing_size_in': 2.5,
+                'speed_type': 'variable_speed',
+            },
+        )
+        compatibility = preview['compatibility']
+        assert compatibility['compatible'] is False
+        assert any('Requires 230V' in issue for issue in compatibility['issues'])
+
+
+
+def test_create_selector_filter_template_saves_reusable_template():
+    with Session(engine) as session:
+        saved = create_equipment_package_template_from_selector(
+            session,
+            template_name='Selector Filter Template',
+            package_kind='filter',
+            item_slug='filter-cartridge-425',
+            quantity=1,
+            saved_by='pytest',
+            labor_profile='standard',
+            compatibility_context={
+                'filter_style': 'cartridge',
+                'target_flow_gpm': 80.0,
+            },
+        )
+        assert saved['saved_template']['package_kind'] == 'filter'
+        assert saved['saved_template']['selector_item']['item_slug'] == 'filter-cartridge-425'
+
+
+
+def test_apply_selector_created_pump_template_to_quote_case_creates_attachment():
+    with Session(engine) as session:
+        case = create_quote_case(
+            session,
+            pipeline_slug='new_residential_services',
+            title='Selector package target case',
+            requester_name='Selector Owner',
+            requester_email='selector@example.com',
+        )
+        saved = create_equipment_package_template_from_selector(
+            session,
+            template_name='Selector Pump Template',
+            package_kind='pump',
+            item_slug='pump-vs-3hp-230',
+            quantity=1,
+            saved_by='pytest',
+            labor_profile='standard',
+            compatibility_context={
+                'voltage': '230V',
+                'plumbing_size_in': 2.0,
+                'speed_type': 'variable_speed',
+            },
+        )
+        applied = apply_equipment_package_template_to_quote_case(
+            session,
+            template_slug=saved['saved_template']['template_slug'],
+            quote_case_id=case.id,
+            attached_by='pytest',
+            replace_existing=False,
+        )
+        assert applied['external_link']['system_slug'] == 'equipment_package'
+        workspace = get_quote_case_equipment_package_workspace(session, case.id)
+        assert workspace['package_count'] == 1
+        assert workspace['packages'][0]['package_kind'] == 'pump'
+        assert workspace['packages'][0]['selector_item']['item_slug'] == 'pump-vs-3hp-230'
