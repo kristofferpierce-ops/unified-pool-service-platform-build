@@ -14,10 +14,12 @@ from app.api.routes.front_desk import router as front_desk_router
 from app.api.routes.freshbooks_oauth import router as freshbooks_oauth_router
 from app.api.routes.health import router as health_router
 from app.api.routes.quote_workflow import router as quote_workflow_router
+from app.api.routes.heater_quotes import router as heater_quotes_router
 from app.api.routes.system_settings import router as system_settings_router
 from app.core.config import APP_NAME, STATIC_DIR
 from app.core.database import create_db_and_tables, get_session
 import app.models.quote_tables as _quote_tables
+import app.models.heater_quote_tables as _heater_quote_tables
 from app.services.bootstrap import seed_defaults
 
 app = FastAPI(title=APP_NAME)
@@ -29,6 +31,7 @@ app.include_router(connectors_router)
 app.include_router(front_desk_router)
 app.include_router(freshbooks_oauth_router)
 app.include_router(quote_workflow_router)
+app.include_router(heater_quotes_router)
 
 # Legacy platform routes kept active
 app.include_router(expenses.router)

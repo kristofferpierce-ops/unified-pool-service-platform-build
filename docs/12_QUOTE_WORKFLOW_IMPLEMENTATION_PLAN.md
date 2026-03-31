@@ -1,158 +1,172 @@
-# Quote workflow and dashboard rollout plan
+# Quote Workflow Implementation Plan
 
-## Objective
-
-Build Repo B into the quote orchestration layer that keeps the CRM, internal pricing logic, and FreshBooks proposal flow aligned without forcing a full rebuild every time a workflow rule changes.
-
-## Guiding rule
-
-One internal `quote_case` should anchor the workflow.
-
-External systems should attach to that case:
-
-- Less Annoying CRM for pipeline visibility and movement
-- FreshBooks for customer facing estimate drafts, sends, and view status
-- Heritage for live product pricing and later heater quote recommendations
-
-## Rollout blocks
-
-### Block 0
-Stabilize the current platform baseline.
-
-Scope:
-- fix the RingCentral SMS datetime bug
-- keep tests green before adding more moving parts
-- avoid any schema changes that break current estimators, invoice review, or front desk flows
+## Current block status
 
 ### Block 1A
-Quote workflow foundation and dashboard mirror.
-
-Scope:
-- add `quote_case` tables
-- add stage history
-- add external link tracking for CRM and FreshBooks records
-- seed admin editable workflow config from the current CRM bucket language
-- add quote workflow API routes
-- update the Streamlit home screen into a dashboard shell
-- add a dedicated quote workflow page for creating, reviewing, and moving cases
-
-Done when:
-- a quote case can be created
-- a quote case can be moved between allowed stages
-- the dashboard shows counts by pipeline and stage
-- stale cases, follow ups due, and sent but not viewed indicators show up
+Completed in the local repo before this patch bundle:
+- quote case tables
+- dashboard shell
+- quote workflow page
+- stage movement rules
+- age and stale tracking
+- initial dashboard metrics
 
 ### Block 1B
-Less Annoying CRM synchronization.
+This patch bundle adds the LACRM synchronization layer in a safe default mode.
 
-Scope:
-- map internal pipelines and stages to LACRM pipeline records
-- push case creation from program side into LACRM
-- push case stage movement from program side into LACRM
-- ingest LACRM changes back into the platform through a reconcile job or webhook adapter
-- expose sync health and conflict notes in the quote case detail view
+## Block 1B goals
 
-Done when:
-- moving a quote in the program can update LACRM
-- a change in LACRM can be seen and reconciled in the program
-- both systems can be checked for drift
+- keep Repo B as the quote and workflow orchestration layer
+- mirror the bucket system already used by staff in LACRM
+- allow quote cases to store the matching LACRM contact id
+- map internal pipeline and stage slugs to real LACRM pipeline and status ids
+- prepare or run LACRM sync from the program side
+- keep default behavior safe by using dry run mode until live mode is explicitly enabled
+- receive LACRM webhook updates and reconcile them back into the quote case ledger
 
-### Block 1C
-FreshBooks draft estimate flow.
+## Safe default behavior
 
-Scope:
-- build estimate draft payloads from internal quote lines
-- create draft estimates automatically from approved cases
-- keep sent, viewed, accepted, and invoiced status linked back to the quote case
-- move cases to the follow up bucket when the estimate is sent
+This block keeps the compare first and review first philosophy.
 
-Done when:
-- the program can create a draft estimate
-- the estimate can stay in draft until reviewed
-- send and viewed status can be reflected in the dashboard
+Default behavior:
+- local quote workflow still works without any CRM credentials
+- sync mode defaults to `dry_run`
+- a dry run stores the intended LACRM operations on the quote case links without sending a live CRM write
+- live writes only happen when the user explicitly enables live mode and provides a valid `LACRM_API_KEY`
 
-### Block 1D
-Follow up intelligence.
+## New LACRM components
 
-Scope:
-- due today queue
-- viewed but not followed up queue
-- stale quote queue
-- owner and workload dashboard slices
-- configurable follow up timing per pipeline and stage
+### Connector layer
+- `app/connectors/lacrm/client.py`
+- `app/connectors/lacrm/contracts.py`
+
+Responsibilities:
+- call the official LACRM API with API key authorization
+- fetch pipelines and statuses
+- create and edit pipeline items
+- create and edit follow up tasks
+- provide a connection status summary for the UI
+
+### Service layer
+- `app/services/lacrm_sync.py`
+
+Responsibilities:
+- create and maintain the local LACRM sync config
+- refresh local pipeline and status ids from live LACRM names
+- store LACRM contact links on quote cases
+- prepare dry run sync operations
+- optionally perform live LACRM pipeline item and task writes
+- reconcile inbound LACRM pipeline status updates back into local quote stages
+- store and verify the LACRM webhook secret
+
+### Route layer
+- `app/api/routes/quote_workflow.py`
+
+New API surfaces:
+- `GET /quote-workflow/lacrm/mapping`
+- `POST /quote-workflow/lacrm/mapping/refresh`
+- `GET /quote-workflow/cases/{id}/lacrm`
+- `POST /quote-workflow/cases/{id}/lacrm/contact-link`
+- `POST /quote-workflow/cases/{id}/lacrm/sync`
+- `POST /quote-workflow/lacrm/reconcile`
+- `POST /quote-workflow/lacrm/webhook`
+
+### UI layer
+- `ui/Dashboard.py`
+- `ui/pages/11_Quote_Workflow.py`
+
+New UI behavior:
+- dashboard shows LACRM pending and drift counts
+- dashboard shows mapping readiness
+- quote workflow page shows contact link, pipeline item link, follow up task link, blockers, and per case sync controls
+- every clickable action includes help text so staff can tell what it does before clicking
+
+## LACRM mapping model
+
+Local quote workflow config still owns the human workflow semantics.
+
+Block 1B adds a second config layer for CRM alignment:
+- internal pipeline slug
+- internal pipeline name
+- LACRM pipeline name
+- LACRM pipeline id
+- internal stage slug
+- internal stage name
+- LACRM stage name
+- LACRM status id
+
+This means staff can keep using familiar bucket names while the program learns the exact CRM ids.
+
+## Sync states used by quote cases
+
+The patch uses these practical states:
+- `local_only`
+- `pending_sync`
+- `pending_contact_link`
+- `pending_mapping`
+- `dry_run_ready`
+- `synced`
+- `sync_failed`
+- `drift`
+- `external_deleted`
+
+## Webhook behavior
+
+The webhook endpoint supports the LACRM handshake flow:
+- if `X-Hook-Secret` is present, the program stores it and echoes it back
+- later webhook payloads are validated using `X-Hook-Signature`
+- `PipelineItemStatus.Create` and `PipelineItemStatus.Update` can reconcile a pipeline item status change back into the local quote case
+- `PipelineItemStatus.Delete` marks the linked case for manual review rather than silently removing anything
+
+## Expected env vars
+
+Optional for dry run only:
+- none
+
+Required for live refresh and live write actions:
+- `LACRM_API_KEY`
+
+Optional overrides:
+- `LACRM_API_BASE_URL`
+
+## Expected env vars for Block 1C
+
+Optional for dry run only:
+- none
+
+Required for live FreshBooks draft creation and live status refresh:
+- `FRESHBOOKS_ACCESS_TOKEN`
+- `FRESHBOOKS_ACCOUNT_ID`
+
+Optional overrides:
+- `FRESHBOOKS_API_BASE_URL`
+- `FRESHBOOKS_API_VERSION`
+
+## Block 1C
+FreshBooks estimate draft orchestration
+
+Implemented objectives in this patch set:
+- add a FreshBooks OAuth-based connector layer that can read identity context, create clients, create estimate drafts, update estimate drafts, and refresh estimate state
+- keep FreshBooks client and estimate ids linked back to each quote case using the existing external link ledger
+- prepare draft estimates safely in dry run mode before any live write happens
+- support a manual "mark sent and move to follow up" bridge so staff can keep the quote pipeline aligned even before full send-by-email automation is turned on
+- support webhook verification storage and signed webhook reconcile for estimate events
+- surface FreshBooks readiness and draft status in the dashboard and quote workflow page
+
+## What this block deliberately does not do yet
+
+- it does not implement the full FreshBooks OAuth authorization code and token refresh loop yet
+- it does not automate send-by-email directly from the UI yet
+- it does not add structured multi-line estimate authoring tables beyond the first practical draft line in the UI
+- it does not change estimator logic
+- it does not move any replay logic out of Repo A
+
+## Next planned block after 1C
 
 ### Block 2A
-Heater quote module.
+Heater quote module and vendor-backed equipment draft lines
 
-Scope:
-- heating requirement calculator
-- candidate heater search through the Heritage adapter
-- live price snapshots attached to the quote case
-- selected heater pushed into estimate lines
-
-Inputs should include:
-- outdoor air temperature
-- current water temperature
-- target water temperature
-- gallons or dimensions
-- covered or uncovered
-- desired heat up window
-- preferred heater type
-
-### Block 2B
-Reusable equipment quote framework.
-
-Scope:
-- pump quote module
-- filter quote module
-- automation quote module
-- salt system quote module
-- heater and chiller expansions
-
-## File map for Block 1A
-
-New files:
-- `app/models/quote_tables.py`
-- `app/services/quote_workflow.py`
-- `app/api/routes/quote_workflow.py`
-- `ui/pages/11_Quote_Workflow.py`
-- `tests/test_quote_workflow.py`
-
-Updated files:
-- `app/models/__init__.py`
-- `app/api/app.py`
-- `app/services/bootstrap.py`
-- `app/services/ingestion.py`
-- `ui/app.py`
-
-## Change management rule
-
-Workflow behavior should come from settings and mappings first, not hardcoded page logic.
-
-These values should stay editable:
-- pipeline names
-- stage names
-- allowed transitions
-- stale thresholds
-- follow up timing
-- FreshBooks status behavior
-- LACRM stage mappings
-
-## Suggested branch order
-
-```powershell
-cd C:\Users\krist\Desktop\unified_pool_service_platform_build\unified_pool_service_platform_build
-
-git switch platform-integration-block1-dashboard-shell
-git switch -c platform-integration-block1a-quote-workflow-foundation
-```
-
-## Validation commands
-
-```powershell
-cd C:\Users\krist\Desktop\unified_pool_service_platform_build\unified_pool_service_platform_build
-
-python -m pytest
-python -m streamlit run ui\Dashboard.py
-python -m uvicorn app.api.main:app --reload
-```
+Planned objectives:
+- calculate heating demand from pool and temperature inputs
+- pull matching heater options and live pricing from the Heritage adapter
+- let staff push selected heater lines directly into the quote case and FreshBooks draft workflow

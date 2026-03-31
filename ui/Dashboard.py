@@ -14,7 +14,9 @@ from app.core.database import create_db_and_tables, engine
 from app.models.quote_tables import QuoteCase
 from app.models.tables import Account, PoolVessel, Property
 from app.services.bootstrap import seed_defaults
-from app.services.quote_workflow import get_dashboard_summary
+from app.services.freshbooks_sync import get_freshbooks_mapping_summary
+from app.services.lacrm_sync import get_lacrm_mapping_summary
+from app.services.quote_workflow import get_dashboard_summary, list_quote_cases
 
 st.set_page_config(page_title='Unified Pool Service Operations Core', layout='wide')
 
@@ -26,22 +28,31 @@ with Session(engine) as session:
     vessels_count = len(list(session.exec(select(PoolVessel)).all()))
     active_quotes = len(list(session.exec(select(QuoteCase)).all()))
     quote_dashboard = get_dashboard_summary(session)
+    lacrm_summary = get_lacrm_mapping_summary(session)
+    freshbooks_summary = get_freshbooks_mapping_summary(session)
+    all_cases = list_quote_cases(session, limit=1000)
+    sync_pending = sum(1 for case in all_cases if case.sync_status in {'local_only', 'pending_sync', 'pending_mapping', 'pending_contact_link', 'dry_run_ready', 'sync_failed'})
+    sync_drift = sum(1 for case in all_cases if case.sync_status in {'drift', 'external_deleted'})
 
 st.title('Unified Pool Service Operations Core')
 st.caption('Operations dashboard shell for quoting, billing readiness, deliveries, front desk review, and modular estimating tools.')
 
-m1, m2, m3, m4, m5, m6 = st.columns(6)
+m1, m2, m3, m4, m5, m6, m7, m8, m9, m10 = st.columns(10)
 m1.metric('Accounts', accounts_count, help='Total account records currently stored in the platform database.')
 m2.metric('Properties', properties_count, help='Total property records currently stored in the platform database.')
 m3.metric('Vessels', vessels_count, help='Total pool vessels currently stored in the platform database.')
-m4.metric('Quote Cases', active_quotes, help='Total quote workflow cases currently tracked in the new workflow ledger.')
+m4.metric('Quote Cases', active_quotes, help='Total quote workflow cases currently tracked in the workflow ledger.')
 m5.metric('Stale Cases', quote_dashboard['totals']['stale_cases'], help='Cases that have been in their current stage longer than the configured threshold.')
 m6.metric('Follow Ups Due', quote_dashboard['totals']['follow_ups_due'], help='Cases with a follow up due date on or before today.')
+m7.metric('LACRM Pending', sync_pending, help='Cases that still need mapping, contact linking, or a prepared sync before CRM alignment is complete.')
+m8.metric('LACRM Drift', sync_drift, help='Cases where the CRM record was deleted or the webhook delivered a status that is not mapped locally yet.')
+m9.metric('FB Drafts', freshbooks_summary['draft_prepared_count'], help='Quote cases with a FreshBooks draft prepared locally or live, waiting for review and send.')
+m10.metric('FB Sent or Viewed', freshbooks_summary['sent_estimate_count'] + freshbooks_summary['viewed_estimate_count'], help='Quote cases whose linked FreshBooks estimate is already sent or viewed.')
 
 st.subheader('Operations launchpad')
 launch_a, launch_b, launch_c, launch_d = st.columns(4)
 with launch_a:
-    st.page_link('pages/11_Quote_Workflow.py', label='Quote Workflow', icon='🧭', help='Open the new quote workflow board to create, review, and move quote cases.')
+    st.page_link('pages/11_Quote_Workflow.py', label='Quote Workflow', icon='🧭', help='Open the quote workflow board to create, review, sync, and move quote cases.')
     st.page_link('pages/7_Invoice_Review.py', label='Invoice Review', icon='🧾', help='Open the invoice review queue for staged invoice parsing and approval.')
 with launch_b:
     st.page_link('pages/5_Commercial_Estimator.py', label='Commercial Estimator', icon='🏢', help='Open the commercial estimator for scenario building and pricing.')
@@ -75,5 +86,94 @@ for index, pipeline in enumerate(quote_dashboard['pipelines']):
                 suffix = f" | {' | '.join(extras)}" if extras else ''
                 st.write(f"**{label}:** {counts}{suffix}")
 
+st.subheader('LACRM sync readiness')
+st.caption('This section shows whether the local quote workflow stages have enough CRM mapping information to keep the program and the CRM aligned.')
+
+sync_a, sync_b, sync_c = st.columns(3)
+sync_a.metric(
+    'Mapped Pipelines',
+    f"{lacrm_summary['mapped_pipeline_count']} of {lacrm_summary['total_pipeline_count']}",
+    help='How many internal pipeline families are matched to real LACRM pipeline ids.',
+)
+sync_b.metric(
+    'Mapped Stages',
+    f"{lacrm_summary['mapped_stage_count']} of {lacrm_summary['total_stage_count']}",
+    help='How many internal stages are matched to real LACRM status ids.',
+)
+sync_c.metric(
+    'Sync Mode',
+    lacrm_summary['connection']['sync_mode'],
+    help='Dry run means the app stores intended CRM actions without sending live writes. Live mode only turns on when you explicitly enable it and provide an API key.',
+)
+
+for pipeline in lacrm_summary['pipelines']:
+    with st.expander(f"{pipeline['pipeline_name']} CRM map", expanded=False):
+        st.write(f"**LACRM pipeline name:** {pipeline['lacrm_pipeline_name']}")
+        st.write(f"**LACRM pipeline id:** {pipeline['lacrm_pipeline_id'] or 'Not mapped yet'}")
+        for stage in pipeline['stages']:
+            status_note = stage['lacrm_status_id'] or 'Missing status id'
+            st.write(f"**{stage['stage_name']}:** {status_note}")
+
+st.subheader('FreshBooks draft sync readiness')
+st.caption('This section shows whether the draft estimate layer is configured to prepare local drafts only or can create and refresh real FreshBooks estimates through OAuth.')
+
+fb_a, fb_b, fb_c, fb_d = st.columns(4)
+fb_a.metric(
+    'FreshBooks Mode',
+    freshbooks_summary['connection']['sync_mode'],
+    help='Dry run prepares draft payloads and review records locally. Live mode needs OAuth credentials and account context.',
+)
+fb_b.metric(
+    'Access Token',
+    'Present' if freshbooks_summary['connection']['has_access_token'] else 'Missing',
+    help='FreshBooks uses OAuth 2.0 access tokens rather than API keys for accounting endpoints.',
+)
+fb_c.metric(
+    'Account Id',
+    'Present' if freshbooks_summary['connection']['has_account_id'] else 'Missing',
+    help='Accounting endpoints need the FreshBooks account id. Context refresh can help resolve it from the identity endpoint when the token is valid.',
+)
+fb_d.metric(
+    'Accepted or Invoiced',
+    freshbooks_summary['accepted_estimate_count'],
+    help='Quote cases whose linked FreshBooks estimate is already accepted or invoiced.',
+)
+
+for pipeline in freshbooks_summary['pipelines']:
+    with st.expander(f"{pipeline['pipeline_name']} FreshBooks rules", expanded=False):
+        st.write(f"**Enabled:** {'Yes' if pipeline['freshbooks_enabled'] else 'No'}")
+        st.write(f"**Default currency:** {pipeline['default_currency_code']}")
+        st.write(f"**Follow up stage:** {pipeline.get('follow_up_stage_slug') or 'Not configured'}")
+        st.write(f"**Accepted stage:** {pipeline.get('accepted_stage_slug') or 'Not configured'}")
+
 with st.expander('What this dashboard is becoming', expanded=False):
-    st.write('Repo B is being turned into the workflow and quote orchestration layer that mirrors CRM stages, tracks case age, and later will coordinate draft estimates in FreshBooks and live vendor pricing tools without forcing a full rebuild when workflow rules change.')
+    st.write('Repo B is being turned into the workflow and quote orchestration layer that mirrors CRM stages, tracks case age, coordinates LACRM quote sync, and later will coordinate draft estimates in FreshBooks and live vendor pricing tools without forcing a full rebuild when workflow rules change.')
+
+st.subheader('Equipment quote tools')
+with Session(engine) as _heater_session:
+    from app.services.heater_quote import get_heater_quote_dashboard_summary
+    _heater_dashboard = get_heater_quote_dashboard_summary(_heater_session)
+
+heater_metric_a, heater_metric_b, heater_metric_c = st.columns(3)
+heater_metric_a.metric(
+    'Heater Quote Runs',
+    _heater_dashboard['total_runs'],
+    help='Total heater sizing runs already saved inside the platform database.',
+)
+heater_metric_b.metric(
+    'Heater Candidates',
+    _heater_dashboard['candidate_count'],
+    help='Total recommended heater candidates saved across all heater quote runs.',
+)
+heater_metric_c.metric(
+    'Heritage Heater Mode',
+    _heater_dashboard['heritage_connection']['sync_mode'],
+    help='Dry run uses the fallback catalog. Live mode tries the configured Heritage catalog source first.',
+)
+
+st.page_link(
+    'pages/12_Heater_Quote.py',
+    label='Heater Quote Tool',
+    icon='♨️',
+    help='Click to size pool or spa heating, review recommended heaters, and attach a heater recommendation to an open quote case.',
+)
