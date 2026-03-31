@@ -2824,6 +2824,56 @@ def list_quote_case_equipment_package_lines(session: Session, quote_case_id: int
     return prepared_lines
 
 
+def _proposal_markdown_to_plaintext(markdown_text: str) -> str:
+    lines: list[str] = []
+    for raw_line in str(markdown_text or '').splitlines():
+        stripped = raw_line.strip()
+        if stripped.startswith('### '):
+            stripped = stripped[4:]
+        elif stripped.startswith('## '):
+            stripped = stripped[3:]
+        elif stripped.startswith('# '):
+            stripped = stripped[2:]
+        if stripped.startswith('- '):
+            stripped = '• ' + stripped[2:]
+        lines.append(stripped)
+    return '\n'.join(lines).strip()
+
+
+def build_quote_case_proposal_payload(session: Session, quote_case_id: int, package_kind: str | None = None) -> dict[str, Any]:
+    summary = build_quote_case_proposal_ready_package_summary(session, quote_case_id, package_kind=package_kind)
+    estimate_lines = list_quote_case_equipment_package_lines(session, quote_case_id, package_kind=package_kind)
+    workspace = summary.get('workspace') if isinstance(summary.get('workspace'), dict) else {}
+    customer_markdown = str(summary.get('customer_markdown') or '')
+    customer_plaintext = _proposal_markdown_to_plaintext(customer_markdown)
+    customer_sections = summary.get('customer_sections') if isinstance(summary.get('customer_sections'), list) else []
+    package_titles = [str(section.get('title') or '').strip() for section in customer_sections if isinstance(section, dict) and str(section.get('title') or '').strip()]
+    draft_note_parts = [customer_plaintext]
+    grand_total = float(workspace.get('grand_total') or 0)
+    currency_code = str(summary.get('currency_code') or workspace.get('currency_code') or 'USD')
+    if package_titles:
+        draft_note_parts.append(f"Included package count: {len(package_titles)}")
+    if grand_total > 0:
+        draft_note_parts.append(f"Package total: {grand_total:,.2f} {currency_code}")
+    draft_note = '\n\n'.join(part for part in draft_note_parts if part).strip()
+    return {
+        'quote_case_id': quote_case_id,
+        'package_kind': package_kind,
+        'currency_code': currency_code,
+        'package_titles': package_titles,
+        'customer_summary_markdown': customer_markdown,
+        'customer_summary_plaintext': customer_plaintext,
+        'draft_note': draft_note,
+        'estimate_lines': estimate_lines,
+        'package_totals': {
+            'grand_total': grand_total,
+            'currency_code': currency_code,
+        },
+        'internal_review_markdown': str(summary.get('internal_markdown') or ''),
+        'proposal_ready_summary': summary,
+    }
+
+
 def list_quote_case_heater_package_lines(session: Session, quote_case_id: int) -> list[dict[str, Any]]:
     # Legacy name retained because the FreshBooks sync layer already imports it.
     return list_quote_case_equipment_package_lines(session, quote_case_id)

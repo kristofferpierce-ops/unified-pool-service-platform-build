@@ -15,6 +15,7 @@ from app.services.heater_quote import (
     build_equipment_package_template_from_builder_preview,
     build_equipment_package_template_from_selector_preview,
     build_equipment_package_template_from_wizard_preview,
+    build_quote_case_proposal_payload,
     build_quote_case_proposal_ready_package_summary,
     create_equipment_package_template_from_builder,
     create_equipment_package_template_from_selector,
@@ -1218,3 +1219,75 @@ def test_proposal_ready_summary_handles_manual_package_customer_output():
         assert summary['customer_sections'][0]['package_kind'] == 'automation'
         assert 'Automation panel' in summary['customer_markdown']
         assert summary['workspace']['grand_total'] > 0
+
+
+def test_build_quote_case_proposal_payload_keeps_customer_fields_clean():
+    with Session(engine) as session:
+        case = create_quote_case(
+            session,
+            pipeline_slug='new_residential_services',
+            title='Proposal payload case',
+            requester_name='Payload Owner',
+            requester_email='payload@example.com',
+        )
+        saved = create_equipment_package_template_from_selector(
+            session,
+            template_name='Payload Pump Template',
+            package_kind='pump',
+            item_slug='pump-vs-3hp-230',
+            quantity=1,
+            saved_by='pytest',
+            labor_profile='standard',
+            compatibility_context={
+                'voltage': '230V',
+                'plumbing_size_in': 2.0,
+                'speed_type': 'variable_speed',
+            },
+        )
+        apply_equipment_package_template_to_quote_case(
+            session,
+            template_slug=saved['saved_template']['template_slug'],
+            quote_case_id=case.id,
+            attached_by='pytest',
+            replace_existing=False,
+        )
+        payload = build_quote_case_proposal_payload(session, case.id)
+        assert payload['package_titles']
+        assert payload['estimate_lines']
+        assert payload['package_totals']['grand_total'] > 0
+        assert 'Selector score' not in payload['customer_summary_markdown']
+        assert 'Selector score' not in payload['draft_note']
+        assert 'Selector score' in payload['internal_review_markdown']
+
+
+def test_build_quote_case_proposal_payload_supports_manual_packages():
+    with Session(engine) as session:
+        case = create_quote_case(
+            session,
+            pipeline_slug='new_residential_services',
+            title='Manual payload case',
+            requester_name='Manual Payload Owner',
+            requester_email='manual-payload@example.com',
+        )
+        manual = create_manual_equipment_package_template(
+            session,
+            template_name='Manual Payload Template',
+            package_kind='automation',
+            line_items=[
+                {'name': 'Automation panel', 'description': 'Automation panel equipment.', 'qty': 1, 'amount': 1800.0, 'category': 'equipment', 'code': 'USD'},
+                {'name': 'Automation install labor', 'description': 'Install and commissioning labor.', 'qty': 6, 'amount': 135.0, 'category': 'labor', 'code': 'USD'},
+            ],
+            currency_code='USD',
+            created_by='pytest',
+        )
+        apply_equipment_package_template_to_quote_case(
+            session,
+            template_slug=manual['saved_template']['template_slug'],
+            quote_case_id=case.id,
+            attached_by='pytest',
+            replace_existing=False,
+        )
+        payload = build_quote_case_proposal_payload(session, case.id)
+        assert 'Automation panel' in payload['customer_summary_markdown']
+        assert any(line.get('name') == 'Automation panel' for line in payload['estimate_lines'])
+        assert payload['package_totals']['grand_total'] > 0

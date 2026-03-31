@@ -14,7 +14,7 @@ from sqlmodel import Session, select
 from app.connectors.freshbooks.client import FreshBooksAPIError, get_freshbooks_client, get_freshbooks_connection_status
 from app.connectors.freshbooks.contracts import FreshBooksSyncOperation, FreshBooksSyncResult
 from app.models.quote_tables import QuoteCase, QuoteCaseExternalLink
-from app.services.heater_quote import list_quote_case_heater_package_lines
+from app.services.heater_quote import build_quote_case_proposal_payload, list_quote_case_heater_package_lines
 from app.services.quote_workflow import (
     get_pipeline_config,
     get_quote_case,
@@ -440,7 +440,11 @@ def sync_quote_case_to_freshbooks(
     resolved_currency_code = (currency_code or pipeline_settings.get('default_currency_code') or 'USD').strip() or 'USD'
     resolved_terms = terms if terms != '' else str(pipeline_settings.get('default_terms', ''))
     resolved_notes = notes if notes != '' else str(pipeline_settings.get('default_notes', ''))
-    normalized_lines = _normalize_lines(session, lines, resolved_currency_code, case)
+    proposal_payload = build_quote_case_proposal_payload(session, quote_case_id)
+    payload_lines = lines if lines else (proposal_payload.get('estimate_lines') if isinstance(proposal_payload.get('estimate_lines'), list) else None)
+    normalized_lines = _normalize_lines(session, payload_lines, resolved_currency_code, case)
+    if notes == '' and not resolved_notes.strip():
+        resolved_notes = str(proposal_payload.get('draft_note') or '')
 
     client_link = _get_freshbooks_link(session, quote_case_id, 'client')
     estimate_link = _get_freshbooks_link(session, quote_case_id, 'estimate')

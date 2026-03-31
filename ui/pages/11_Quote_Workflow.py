@@ -30,7 +30,7 @@ from app.services.freshbooks_sync import (
     refresh_quote_case_from_freshbooks,
     sync_quote_case_to_freshbooks,
 )
-from app.services.heater_quote import apply_equipment_package_template_to_quote_case, build_equipment_package_template_from_builder_preview, build_equipment_package_template_from_selector_preview, build_equipment_package_template_from_wizard_preview, build_quote_case_proposal_ready_package_summary, create_equipment_package_template_from_builder, create_equipment_package_template_from_selector, create_equipment_package_template_from_wizard, create_manual_equipment_package_template, delete_equipment_package_template, get_equipment_family_builder_catalog, get_equipment_family_builder_wizard_catalog, get_equipment_selector_catalog, get_equipment_package_template_summary, get_quote_case_equipment_package_workspace, list_equipment_package_templates, remove_heater_package_from_quote_case, reset_heater_package_lines, save_heater_package_template, score_equipment_selector_candidates, update_heater_package_lines
+from app.services.heater_quote import apply_equipment_package_template_to_quote_case, build_equipment_package_template_from_builder_preview, build_equipment_package_template_from_selector_preview, build_equipment_package_template_from_wizard_preview, build_quote_case_proposal_payload, build_quote_case_proposal_ready_package_summary, create_equipment_package_template_from_builder, create_equipment_package_template_from_selector, create_equipment_package_template_from_wizard, create_manual_equipment_package_template, delete_equipment_package_template, get_equipment_family_builder_catalog, get_equipment_family_builder_wizard_catalog, get_equipment_selector_catalog, get_equipment_package_template_summary, get_quote_case_equipment_package_workspace, list_equipment_package_templates, remove_heater_package_from_quote_case, reset_heater_package_lines, save_heater_package_template, score_equipment_selector_candidates, update_heater_package_lines
 from app.services.quote_workflow import (
     create_quote_case,
     get_dashboard_summary,
@@ -1109,6 +1109,8 @@ else:
 
 
             with st.expander(f"FreshBooks draft controls for {case['quote_number']}", expanded=False):
+                with Session(engine) as session:
+                    proposal_payload = build_quote_case_proposal_payload(session, case['id'])
                 fb_client_default = freshbooks_links['client_link']['external_id'] if freshbooks_links['client_link'] else ''
                 fb_client_name_default = freshbooks_links['client_link']['external_label'] if freshbooks_links['client_link'] else ''
                 fb_link_a, fb_link_b, fb_link_c = st.columns([2, 2, 1])
@@ -1157,11 +1159,27 @@ else:
                     key=f"fb_terms_{case['id']}",
                     help='Terms that should appear on the estimate, such as payment timing or job conditions.',
                 )
+                use_package_payload = st.checkbox(
+                    'Use package proposal payload',
+                    value=True,
+                    key=f"fb_use_package_payload_{case['id']}",
+                    help='When this is on, the draft uses attached package lines and the customer-safe package summary for the estimate notes.',
+                )
+                if proposal_payload.get('package_titles'):
+                    st.caption(f"Package payload ready: {len(proposal_payload.get('package_titles', []))} package(s), total {float(proposal_payload.get('package_totals', {}).get('grand_total') or 0):,.2f} {proposal_payload.get('currency_code', 'USD')}")
+                    st.text_area(
+                        'Proposal payload preview',
+                        value=str(proposal_payload.get('draft_note') or ''),
+                        height=180,
+                        key=f"fb_payload_preview_{case['id']}",
+                        help='Preview the customer-safe proposal text that will be used in the FreshBooks draft notes when package payload mode is on.',
+                        disabled=True,
+                    )
                 fb_notes = st.text_area(
                     'Estimate notes',
-                    value=case['description'] or '',
+                    value=(str(proposal_payload.get('draft_note') or '') if proposal_payload.get('package_titles') else (case['description'] or '')),
                     key=f"fb_notes_{case['id']}",
-                    help='Internal or customer-facing estimate note content for this draft.',
+                    help='Customer-facing estimate note content for this draft. Leave package payload mode on to reuse the attached package proposal summary.',
                 )
                 line_a, line_b, line_c, line_d = st.columns([2, 2, 1, 1])
                 fb_line_name = line_a.text_input(
@@ -1206,7 +1224,7 @@ else:
                 )
                 button_a, button_b, button_c = st.columns(3)
                 if button_a.button('Prepare or Create Draft', key=f"fb_prepare_{case['id']}", help='Prepare a local FreshBooks draft package or create a live estimate draft when live mode is enabled and credentials are ready.'):
-                    line_payload = [
+                    line_payload = None if use_package_payload else [
                         {
                             'name': fb_line_name.strip() or case['title'],
                             'description': fb_line_description.strip(),
