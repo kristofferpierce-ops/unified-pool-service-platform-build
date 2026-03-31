@@ -15,6 +15,7 @@ from app.services.heater_quote import (
     build_equipment_package_template_from_builder_preview,
     build_equipment_package_template_from_selector_preview,
     build_equipment_package_template_from_wizard_preview,
+    build_quote_case_proposal_ready_package_summary,
     create_equipment_package_template_from_builder,
     create_equipment_package_template_from_selector,
     create_equipment_package_template_from_wizard,
@@ -35,6 +36,7 @@ from app.services.heater_quote import (
     remove_heater_package_from_quote_case,
     reset_heater_package_lines,
     save_heater_package_template,
+    score_equipment_selector_candidates,
     update_heater_package_lines,
 )
 from app.services.quote_workflow import create_quote_case
@@ -1060,3 +1062,159 @@ def test_apply_selector_created_pump_template_to_quote_case_creates_attachment()
         assert workspace['package_count'] == 1
         assert workspace['packages'][0]['package_kind'] == 'pump'
         assert workspace['packages'][0]['selector_item']['item_slug'] == 'pump-vs-3hp-230'
+
+
+
+def test_selector_candidate_scoring_prefers_branch_overlay_when_available():
+    with Session(engine) as session:
+        ranking = score_equipment_selector_candidates(
+            session,
+            package_kind='pump',
+            compatibility_context={
+                'voltage': '230V',
+                'plumbing_size_in': 2.0,
+                'speed_type': 'variable_speed',
+            },
+            preferred_branch='Key West',
+            limit=5,
+        )
+        assert ranking['candidates'][0]['selector_item']['item_slug'] == 'pump-vs-3hp-230'
+        assert ranking['candidates'][0]['selector_item']['price_source'].startswith('branch_overlay:')
+        assert ranking['candidates'][0]['selector_item']['branch_name'] == 'Key West'
+
+
+def test_selector_preview_uses_branch_pricing_overlay():
+    with Session(engine) as session:
+        preview = build_equipment_package_template_from_selector_preview(
+            session,
+            package_kind='pump',
+            item_slug='pump-vs-3hp-230',
+            quantity=1,
+            saved_by='pytest',
+            template_name='Branch priced pump preview',
+            labor_profile='standard',
+            preferred_branch='Miami',
+            compatibility_context={
+                'voltage': '230V',
+                'plumbing_size_in': 2.0,
+                'speed_type': 'variable_speed',
+            },
+        )
+        assert preview['selector_item']['price_source'].startswith('branch_overlay:')
+        assert preview['selector_item']['branch_name'] == 'Miami'
+        assert preview['selector_item']['effective_unit_price'] == 2395.0
+
+
+def test_selector_recommendations_penalize_incompatible_items():
+    with Session(engine) as session:
+        ranking = score_equipment_selector_candidates(
+            session,
+            package_kind='pump',
+            compatibility_context={
+                'voltage': '115V',
+                'plumbing_size_in': 2.0,
+                'speed_type': 'variable_speed',
+            },
+            preferred_branch='',
+            limit=5,
+        )
+        assert ranking['candidates'][0]['selector_item']['item_slug'] != 'pump-vs-3hp-230'
+        assert ranking['candidates'][0]['compatible'] in {True, False}
+        assert any(not item['compatible'] for item in ranking['candidates'])
+
+
+def test_selector_template_persists_preferred_branch_and_scoring():
+    with Session(engine) as session:
+        saved = create_equipment_package_template_from_selector(
+            session,
+            template_name='Scored Pump Template',
+            package_kind='pump',
+            item_slug='pump-vs-3hp-230',
+            quantity=1,
+            saved_by='pytest',
+            labor_profile='standard',
+            preferred_branch='Key West',
+            compatibility_context={
+                'voltage': '230V',
+                'plumbing_size_in': 2.0,
+                'speed_type': 'variable_speed',
+            },
+        )
+        template = saved['saved_template']
+        assert template['selector_preferred_branch'] == 'Key West'
+        assert template['selector_item']['price_source'].startswith('branch_overlay:')
+        assert float(template['selector_scoring']['score']) > 0
+
+
+
+def test_build_quote_case_proposal_ready_package_summary_separates_customer_and_internal_views():
+    with Session(engine) as session:
+        case = create_quote_case(
+            session,
+            pipeline_slug='new_residential_services',
+            title='Proposal summary target case',
+            requester_name='Proposal Owner',
+            requester_email='proposal@example.com',
+        )
+        saved = create_equipment_package_template_from_selector(
+            session,
+            template_name='Proposal Pump Template',
+            package_kind='pump',
+            item_slug='pump-vs-3hp-230',
+            quantity=1,
+            saved_by='pytest',
+            labor_profile='standard',
+            compatibility_context={
+                'voltage': '230V',
+                'plumbing_size_in': 2.0,
+                'speed_type': 'variable_speed',
+            },
+        )
+        apply_equipment_package_template_to_quote_case(
+            session,
+            template_slug=saved['saved_template']['template_slug'],
+            quote_case_id=case.id,
+            attached_by='pytest',
+            replace_existing=False,
+        )
+        summary = build_quote_case_proposal_ready_package_summary(session, case.id)
+        assert summary['workspace']['package_count'] == 1
+        assert summary['customer_sections'][0]['package_kind'] == 'pump'
+        assert 'Pump' in summary['customer_sections'][0]['title']
+        assert 'Selector score' not in summary['customer_markdown']
+        assert summary['internal_sections'][0]['selector_item']['item_slug'] == 'pump-vs-3hp-230'
+        assert 'Selector score' in summary['internal_markdown']
+
+
+def test_proposal_ready_summary_handles_manual_package_customer_output():
+    with Session(engine) as session:
+        case = create_quote_case(
+            session,
+            pipeline_slug='new_residential_services',
+            title='Mixed family proposal case',
+            requester_name='Mixed Owner',
+            requester_email='mixed@example.com',
+        )
+        manual = create_manual_equipment_package_template(
+            session,
+            template_name='Automation Manual Template',
+            package_kind='automation',
+            line_items=[
+                {'name': 'Automation panel', 'description': 'Automation panel equipment.', 'qty': 1, 'amount': 1800.0, 'category': 'equipment', 'code': 'USD'},
+                {'name': 'Automation install labor', 'description': 'Install and commissioning labor.', 'qty': 6, 'amount': 135.0, 'category': 'labor', 'code': 'USD'},
+            ],
+            currency_code='USD',
+            created_by='pytest',
+        )
+        apply_equipment_package_template_to_quote_case(
+            session,
+            template_slug=manual['saved_template']['template_slug'],
+            quote_case_id=case.id,
+            attached_by='pytest',
+            replace_existing=False,
+        )
+        summary = build_quote_case_proposal_ready_package_summary(session, case.id)
+        assert summary['workspace']['package_count'] == 1
+        assert summary['customer_sections'][0]['package_kind'] == 'automation'
+        assert 'Automation panel' in summary['customer_markdown']
+        assert summary['workspace']['grand_total'] > 0

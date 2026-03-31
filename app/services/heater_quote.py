@@ -1395,6 +1395,8 @@ def _serialize_attached_equipment_package_link(link: QuoteCaseExternalLink) -> d
         'has_overrides': has_overrides,
         'selector_item': _normalize_selector_item(payload.get('selector_item'), payload),
         'compatibility': payload.get('compatibility_context') if isinstance(payload.get('compatibility_context'), dict) else {},
+        'selector_scoring': payload.get('selector_scoring') if isinstance(payload.get('selector_scoring'), dict) else {},
+        'selector_preferred_branch': str(payload.get('selector_preferred_branch') or ''),
         'attached_by': payload.get('attached_by', ''),
     }
 
@@ -1449,18 +1451,24 @@ def create_manual_equipment_package_template(
     *,
     template_name: str,
     package_kind: str,
-    lines: list[dict[str, Any]],
+    lines: list[dict[str, Any]] | None = None,
+    line_items: list[dict[str, Any]] | None = None,
     saved_by: str = 'operator',
+    created_by: str | None = None,
     template_description: str = '',
     currency_code: str = 'USD',
 ) -> dict[str, Any]:
     normalized_kind = _normalize_template_package_kind(package_kind)
-    normalized_lines = _normalize_package_lines(lines, currency_code)
+    effective_saved_by = str(created_by or saved_by or 'operator').strip() or 'operator'
+    raw_lines = line_items if line_items is not None else lines
+    if raw_lines is None:
+        raise ValueError('Manual equipment package template requires lines or line_items')
+    normalized_lines = _normalize_package_lines(raw_lines, currency_code)
     package_summary = _summarize_package_lines(
         normalized_lines,
         {'currency_code': currency_code, 'package_kind': normalized_kind, 'template_description': template_description},
         edited=False,
-        edited_by=saved_by,
+        edited_by=effective_saved_by,
     )
     existing = _get_equipment_package_templates(session)
     template_slug = _next_available_template_slug(existing, _slugify_template_name(template_name or f'{normalized_kind}-package'))
@@ -1469,7 +1477,7 @@ def create_manual_equipment_package_template(
         'template_slug': template_slug,
         'template_name': str(template_name or f'{normalized_kind.title()} package template').strip(),
         'package_kind': normalized_kind,
-        'saved_by': saved_by,
+        'saved_by': effective_saved_by,
         'created_at': now_iso,
         'updated_at': now_iso,
         'source_quote_case_id': None,
@@ -2684,6 +2692,129 @@ def get_quote_case_equipment_package_workspace(session: Session, quote_case_id: 
 def get_quote_case_heater_package_workspace(session: Session, quote_case_id: int) -> dict[str, Any]:
     return get_quote_case_equipment_package_workspace(session, quote_case_id, package_kind='heater')
 
+
+
+
+def _proposal_family_label(package_kind: str) -> str:
+    return str(package_kind or 'equipment').replace('_', ' ').title()
+
+
+def _proposal_package_title(package: dict[str, Any]) -> str:
+    selector_item = package.get('selector_item') if isinstance(package.get('selector_item'), dict) else {}
+    candidate = package.get('candidate') if isinstance(package.get('candidate'), dict) else {}
+    external_label = str(package.get('external_label') or 'Equipment package').strip()
+    display = (
+        str(selector_item.get('display_name') or '').strip()
+        or str(selector_item.get('label') or '').strip()
+        or f"{str(candidate.get('brand_name') or '').strip()} {str(candidate.get('model_name') or '').strip()}".strip()
+        or external_label
+    )
+    return f"{_proposal_family_label(str(package.get('package_kind') or 'equipment'))}: {display}"
+
+
+def _proposal_customer_line_payload(line: dict[str, Any]) -> dict[str, Any]:
+    qty = float(line.get('qty') or 0)
+    amount = float(line.get('amount') or 0)
+    return {
+        'name': str(line.get('name') or '').strip(),
+        'description': str(line.get('description') or '').strip(),
+        'qty': qty,
+        'unit_price': amount,
+        'line_total': round(qty * amount, 2),
+        'category': str(line.get('category') or 'misc_materials'),
+    }
+
+
+def _build_customer_package_markdown(section: dict[str, Any], currency_code: str) -> str:
+    lines = [f"### {section['title']}"]
+    if section.get('summary'):
+        lines.append(section['summary'])
+    if section.get('included_items'):
+        lines.append('Included scope:')
+        for item in section['included_items']:
+            lines.append(f"- {item}")
+    if section.get('customer_lines'):
+        lines.append('Included line items:')
+        for line in section['customer_lines']:
+            total = line.get('line_total', 0.0)
+            lines.append(f"- {line['name']}: {line.get('description', '')} ({line.get('qty', 0):g} x {line.get('unit_price', 0):,.2f} {currency_code} = {total:,.2f} {currency_code})")
+    lines.append(f"Package subtotal: {section.get('package_total', 0):,.2f} {currency_code}")
+    return "\n".join(lines)
+
+
+def _build_internal_package_markdown(section: dict[str, Any], currency_code: str) -> str:
+    lines = [f"### {section['title']}"]
+    selector_item = section.get('selector_item') if isinstance(section.get('selector_item'), dict) else {}
+    selector_scoring = section.get('selector_scoring') if isinstance(section.get('selector_scoring'), dict) else {}
+    compatibility = section.get('compatibility') if isinstance(section.get('compatibility'), dict) else {}
+    if selector_item:
+        lines.append(f"Selector item: {selector_item.get('item_slug') or selector_item.get('display_name') or selector_item.get('label') or 'n/a'}")
+        lines.append(f"Preferred branch: {section.get('selector_preferred_branch') or selector_item.get('preferred_branch') or 'default catalog'}")
+    if selector_scoring:
+        lines.append(f"Selector score: {selector_scoring.get('score', 0):,.1f}")
+    issues = compatibility.get('issues') if isinstance(compatibility.get('issues'), list) else []
+    warnings = compatibility.get('warnings') if isinstance(compatibility.get('warnings'), list) else []
+    if issues:
+        lines.append('Compatibility issues:')
+        for item in issues:
+            lines.append(f"- {item}")
+    if warnings:
+        lines.append('Compatibility warnings:')
+        for item in warnings:
+            lines.append(f"- {item}")
+    lines.append(f"Internal package total: {section.get('package_total', 0):,.2f} {currency_code}")
+    return "\n".join(lines)
+
+
+def build_quote_case_proposal_ready_package_summary(session: Session, quote_case_id: int, package_kind: str | None = None) -> dict[str, Any]:
+    workspace = get_quote_case_equipment_package_workspace(session, quote_case_id, package_kind=package_kind)
+    currency_code = str(workspace.get('currency_code') or 'USD')
+    customer_sections: list[dict[str, Any]] = []
+    internal_sections: list[dict[str, Any]] = []
+
+    for package in workspace.get('packages', []):
+        prepared_lines = [item for item in (package.get('prepared_lines') or []) if isinstance(item, dict)]
+        customer_lines = [_proposal_customer_line_payload(line) for line in prepared_lines]
+        included_items = [line['name'] for line in customer_lines if line['name']]
+        title = _proposal_package_title(package)
+        family_label = _proposal_family_label(str(package.get('package_kind') or 'equipment'))
+        selector_item = package.get('selector_item') if isinstance(package.get('selector_item'), dict) else {}
+        package_total = float(package.get('package_summary', {}).get('grand_total') or 0)
+        summary = f"{family_label} package prepared for proposal review with {len(customer_lines)} included line items."
+        customer_section = {
+            'title': title,
+            'package_kind': package.get('package_kind', 'equipment'),
+            'summary': summary,
+            'included_items': included_items,
+            'customer_lines': customer_lines,
+            'package_total': package_total,
+        }
+        internal_section = {
+            'title': title,
+            'package_kind': package.get('package_kind', 'equipment'),
+            'selector_item': selector_item,
+            'selector_scoring': package.get('selector_scoring') if isinstance(package.get('selector_scoring'), dict) else {},
+            'selector_preferred_branch': str(package.get('selector_preferred_branch') or ''),
+            'compatibility': package.get('compatibility') if isinstance(package.get('compatibility'), dict) else {},
+            'package_total': package_total,
+            'line_count': len(customer_lines),
+        }
+        customer_sections.append(customer_section)
+        internal_sections.append(internal_section)
+
+    customer_markdown = "\n\n".join(_build_customer_package_markdown(section, currency_code) for section in customer_sections) if customer_sections else 'No equipment packages are attached to this quote case.'
+    internal_markdown = "\n\n".join(_build_internal_package_markdown(section, currency_code) for section in internal_sections) if internal_sections else 'No equipment packages are attached to this quote case.'
+
+    return {
+        'quote_case_id': quote_case_id,
+        'package_kind': package_kind,
+        'currency_code': currency_code,
+        'customer_sections': customer_sections,
+        'internal_sections': internal_sections,
+        'customer_markdown': customer_markdown,
+        'internal_markdown': internal_markdown,
+        'workspace': workspace,
+    }
 
 def list_quote_case_equipment_package_lines(session: Session, quote_case_id: int, package_kind: str | None = None) -> list[dict[str, Any]]:
     prepared_lines: list[dict[str, Any]] = []

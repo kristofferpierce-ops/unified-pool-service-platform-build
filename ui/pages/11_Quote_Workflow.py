@@ -30,7 +30,7 @@ from app.services.freshbooks_sync import (
     refresh_quote_case_from_freshbooks,
     sync_quote_case_to_freshbooks,
 )
-from app.services.heater_quote import apply_equipment_package_template_to_quote_case, build_equipment_package_template_from_builder_preview, build_equipment_package_template_from_selector_preview, build_equipment_package_template_from_wizard_preview, create_equipment_package_template_from_builder, create_equipment_package_template_from_selector, create_equipment_package_template_from_wizard, create_manual_equipment_package_template, delete_equipment_package_template, get_equipment_family_builder_catalog, get_equipment_family_builder_wizard_catalog, get_equipment_selector_catalog, get_equipment_package_template_summary, get_quote_case_equipment_package_workspace, list_equipment_package_templates, remove_heater_package_from_quote_case, reset_heater_package_lines, save_heater_package_template, update_heater_package_lines
+from app.services.heater_quote import apply_equipment_package_template_to_quote_case, build_equipment_package_template_from_builder_preview, build_equipment_package_template_from_selector_preview, build_equipment_package_template_from_wizard_preview, build_quote_case_proposal_ready_package_summary, create_equipment_package_template_from_builder, create_equipment_package_template_from_selector, create_equipment_package_template_from_wizard, create_manual_equipment_package_template, delete_equipment_package_template, get_equipment_family_builder_catalog, get_equipment_family_builder_wizard_catalog, get_equipment_selector_catalog, get_equipment_package_template_summary, get_quote_case_equipment_package_workspace, list_equipment_package_templates, remove_heater_package_from_quote_case, reset_heater_package_lines, save_heater_package_template, score_equipment_selector_candidates, update_heater_package_lines
 from app.services.quote_workflow import (
     create_quote_case,
     get_dashboard_summary,
@@ -218,6 +218,7 @@ else:
                 lacrm_case_summary = get_case_lacrm_summary(session, case['id'])
                 freshbooks_case_summary = get_case_freshbooks_summary(session, case['id'])
                 equipment_package_workspace = get_quote_case_equipment_package_workspace(session, case['id'])
+                proposal_ready_workspace = build_quote_case_proposal_ready_package_summary(session, case['id'])
 
             lacrm_links = lacrm_case_summary
             freshbooks_links = freshbooks_case_summary
@@ -321,7 +322,7 @@ else:
                                     selector_values[name] = float(column.number_input(label, min_value=float(field.get('minimum', 0.0)), value=float(field.get('default', 0.0)), step=float(field.get('step', 1.0)), key=key))
                                 else:
                                     selector_values[name] = column.text_input(label, value=str(field.get('default', '')), key=key)
-                        selector_qty_col, selector_labor_col = st.columns([1, 1])
+                        selector_qty_col, selector_labor_col, selector_branch_col = st.columns([1, 1, 1])
                         selector_quantity = selector_qty_col.number_input(
                             'Selector quantity',
                             min_value=1,
@@ -340,6 +341,20 @@ else:
                             format_func=lambda slug, labor=selector_labor_profiles: labor.get(slug, {}).get('label', slug.replace('_', ' ').title()),
                             help='Labor profile applied to the selector-generated package.',
                         )
+                        selector_branch_values = ['Default catalog']
+                        for selector_row in selector_items:
+                            overlays = selector_row.get('branch_price_overlays', {}) if isinstance(selector_row.get('branch_price_overlays'), dict) else {}
+                            for branch_name in overlays.keys():
+                                branch_name = str(branch_name).strip()
+                                if branch_name and branch_name not in selector_branch_values:
+                                    selector_branch_values.append(branch_name)
+                        selector_branch_choice = selector_branch_col.selectbox(
+                            'Preferred pricing branch',
+                            options=selector_branch_values,
+                            key=f'selector_branch_{case["id"]}',
+                            help='Optional branch overlay used for selector ranking and preview pricing when configured for the selected item family.',
+                        )
+                        selector_preferred_branch = '' if selector_branch_choice == 'Default catalog' else selector_branch_choice
                         selector_note = st.text_input(
                             'Selector note',
                             key=f'selector_note_{case["id"]}',
@@ -353,6 +368,51 @@ else:
                             key=f'selector_misc_materials_{case["id"]}',
                             help='Optional extra materials allowance added to the selector-generated package.',
                         )
+                        selector_recommendations = {'candidates': []}
+                        selector_recommendations_error = ''
+                        with Session(engine) as session:
+                            try:
+                                selector_recommendations = score_equipment_selector_candidates(
+                                    session,
+                                    package_kind=selector_family,
+                                    compatibility_context=selector_values,
+                                    preferred_branch=selector_preferred_branch,
+                                    limit=5,
+                                )
+                            except ValueError as exc:
+                                selector_recommendations_error = str(exc)
+                        recommended_selector = next((item for item in selector_recommendations.get('candidates', []) if item.get('recommended')), None)
+                        recommended_selector_slug = recommended_selector.get('selector_item', {}).get('item_slug', '') if isinstance(recommended_selector, dict) else ''
+                        if selector_recommendations_error:
+                            st.error(selector_recommendations_error)
+                        elif selector_recommendations.get('candidates'):
+                            ranking_rows = pd.DataFrame([
+                                {
+                                    'Rank': item.get('rank_order'),
+                                    'Recommended': 'Yes' if item.get('recommended') else '',
+                                    'Item': item.get('selector_item', {}).get('label', ''),
+                                    'Effective Price': item.get('selector_item', {}).get('effective_unit_price', 0.0),
+                                    'Price Source': item.get('selector_item', {}).get('price_source', ''),
+                                    'Compatible': 'Yes' if item.get('compatible') else 'No',
+                                    'Score': item.get('score', 0.0),
+                                    'Issues': '; '.join(str(issue) for issue in item.get('issues', [])),
+                                    'Warnings': '; '.join(str(warning) for warning in item.get('warnings', [])),
+                                }
+                                for item in selector_recommendations.get('candidates', [])
+                            ])
+                            st.write('Selector ranking')
+                            st.dataframe(ranking_rows, width='stretch')
+                            if recommended_selector_slug:
+                                st.caption(
+                                    f"Top recommendation: {recommended_selector.get('selector_item', {}).get('label', recommended_selector_slug)} | Score {recommended_selector.get('score', 0):,.1f} | Price source: {recommended_selector.get('selector_item', {}).get('price_source', 'default_catalog')}"
+                                )
+                        use_recommended_selector = st.checkbox(
+                            'Use top recommendation for preview / save',
+                            value=False,
+                            key=f'use_selector_recommendation_{case["id"]}',
+                            help='When enabled, preview and save will use the highest-ranked selector item instead of the manually chosen item.',
+                        )
+                        selector_item_slug_for_actions = recommended_selector_slug if use_recommended_selector and recommended_selector_slug else selector_item_slug
                         selector_preview_col, selector_save_col = st.columns([1, 1])
                         if selector_preview_col.button('Preview selector package', key=f'preview_selector_package_{case["id"]}', help='Preview the selector-backed package lines before saving the reusable template.'):
                             with Session(engine) as session:
@@ -360,13 +420,14 @@ else:
                                     selector_preview = build_equipment_package_template_from_selector_preview(
                                         session,
                                         package_kind=selector_family,
-                                        item_slug=selector_item_slug,
+                                        item_slug=selector_item_slug_for_actions,
                                         quantity=int(selector_quantity),
                                         saved_by='streamlit_operator',
                                         template_name=selector_template_name,
                                         template_description=selector_note,
                                         labor_profile=selector_labor_profile,
                                         compatibility_context=selector_values,
+                                        preferred_branch=selector_preferred_branch,
                                         misc_materials_amount=selector_misc_materials,
                                     )
                                 except ValueError as exc:
@@ -393,7 +454,10 @@ else:
                                     st.dataframe(selector_rows, width='stretch')
                                     preview_summary = selector_preview.get('package_summary', {})
                                     selector_meta = selector_preview.get('selector_item', {})
-                                    st.caption(f"Selector item: {selector_meta.get('label', '')} · Preview total: {preview_summary.get('package_total', 0):,.2f} {preview_summary.get('currency_code', 'USD')}")
+                                    selector_score = selector_preview.get('selector_scoring', {}) if isinstance(selector_preview.get('selector_scoring'), dict) else {}
+                                    st.caption(
+                                        f"Selector item: {selector_meta.get('label', '')} | Preview total: {preview_summary.get('package_total', 0):,.2f} {preview_summary.get('currency_code', 'USD')} | Price source: {selector_meta.get('price_source', 'default_catalog')} | Score: {selector_score.get('score', 0):,.1f}"
+                                    )
                         if selector_save_col.button('Save selector package template', key=f'save_selector_package_template_{case["id"]}', help='Save the selected catalog-backed item as a reusable equipment package template when it is compatible with the entered context.'):
                             with Session(engine) as session:
                                 try:
@@ -401,12 +465,13 @@ else:
                                         session,
                                         template_name=selector_template_name or f'{selector_family.title()} selector template',
                                         package_kind=selector_family,
-                                        item_slug=selector_item_slug,
+                                        item_slug=selector_item_slug_for_actions,
                                         quantity=int(selector_quantity),
                                         saved_by='streamlit_operator',
                                         template_description=selector_note,
                                         labor_profile=selector_labor_profile,
                                         compatibility_context=selector_values,
+                                        preferred_branch=selector_preferred_branch,
                                         misc_materials_amount=selector_misc_materials,
                                     )
                                     st.success('Selector equipment package template saved.')
@@ -801,6 +866,41 @@ else:
                     st.caption('No equipment packages are attached yet. Use the Heater Quote Tool for heater packages, or create and apply a saved equipment package template here.')
                 else:
                     st.caption(f"Use the Heater Quote Tool with this quote case if you want to add or replace heater packages. Other package families can come from saved templates.")
+                    with st.expander('Proposal-ready package summary', expanded=False):
+                        st.markdown('**Customer-facing package summary**')
+                        st.markdown(proposal_ready_workspace.get('customer_markdown', ''))
+                        st.download_button(
+                            'Download customer package summary',
+                            data=proposal_ready_workspace.get('customer_markdown', ''),
+                            file_name=f"quote_case_{case['quote_number']}_customer_package_summary.txt",
+                            mime='text/plain',
+                            help='Download the customer-facing equipment package summary for proposal review.',
+                            key=f"download_customer_package_summary_{case['id']}",
+                        )
+                        st.markdown('**Internal review**')
+                        internal_sections = proposal_ready_workspace.get('internal_sections', [])
+                        if internal_sections:
+                            internal_rows = pd.DataFrame([
+                                {
+                                    'Package': item.get('title', ''),
+                                    'Family': item.get('package_kind', ''),
+                                    'Selector Item': item.get('selector_item', {}).get('item_slug', ''),
+                                    'Selector Score': item.get('selector_scoring', {}).get('score', 0.0),
+                                    'Preferred Branch': item.get('selector_preferred_branch', ''),
+                                    'Compatibility Issues': len(item.get('compatibility', {}).get('issues', []) if isinstance(item.get('compatibility'), dict) else []),
+                                    'Compatibility Warnings': len(item.get('compatibility', {}).get('warnings', []) if isinstance(item.get('compatibility'), dict) else []),
+                                    'Package Total': item.get('package_total', 0.0),
+                                }
+                                for item in internal_sections
+                            ])
+                            st.dataframe(internal_rows, width='stretch', hide_index=True)
+                        st.text_area(
+                            'Internal package review text',
+                            value=proposal_ready_workspace.get('internal_markdown', ''),
+                            height=220,
+                            key=f"internal_package_review_{case['id']}",
+                            help='Internal-only review notes for selector scoring, branch choice, and compatibility checks.',
+                        )
                     for package in equipment_package_workspace['packages']:
                         pkg_candidate = package.get('candidate', {})
                         pkg_summary = package.get('package_summary', {})
