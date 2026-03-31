@@ -12,6 +12,9 @@ from app.services.heater_quote import (
     calculate_heater_requirements,
     create_heater_quote_run,
     apply_equipment_package_template_to_quote_case,
+    build_equipment_package_template_from_builder_preview,
+    create_equipment_package_template_from_builder,
+    get_equipment_family_builder_catalog,
     create_manual_equipment_package_template,
     delete_equipment_package_template,
     delete_heater_quote_run,
@@ -780,3 +783,88 @@ def test_generic_equipment_workspace_summarizes_mixed_package_families():
         assert workspace['by_kind']['filter'] == 1
         attached_lines = list_quote_case_heater_package_lines(session, case.id)
         assert any(line['name'] == 'Cartridge filter body' for line in attached_lines)
+
+
+def test_equipment_family_builder_catalog_lists_supported_families():
+    catalog = get_equipment_family_builder_catalog()
+    families = catalog.get('families', {})
+    assert {'pump', 'filter', 'salt_system', 'automation'} <= set(families.keys())
+    assert 'standard' in catalog.get('labor_profiles', {})
+
+
+def test_build_pump_package_template_preview_contains_family_specific_lines():
+    with Session(engine) as session:
+        preview = build_equipment_package_template_from_builder_preview(
+            session,
+            package_kind='pump',
+            builder_profile='variable_speed_upgrade',
+            equipment_name='Pentair IntelliFlo VSF',
+            equipment_unit_price=2100.0,
+            quantity=1,
+            saved_by='pytest',
+            labor_profile='standard',
+            include_plumbing_kit=True,
+            include_electrical_allowance=True,
+            include_startup_visit=True,
+        )
+        names = [line['name'] for line in preview['prepared_lines']]
+        assert 'Pentair IntelliFlo VSF' in names
+        assert any('plumbing' in name.lower() for name in names)
+        assert any(line['category'] == 'labor' for line in preview['prepared_lines'])
+        assert preview['package_kind'] == 'pump'
+
+
+def test_create_filter_package_template_from_builder_saves_reusable_template():
+    with Session(engine) as session:
+        saved = create_equipment_package_template_from_builder(
+            session,
+            template_name='Builder Filter Package',
+            package_kind='filter',
+            builder_profile='sand_filter_replacement',
+            equipment_name='TR100 Sand Filter',
+            equipment_unit_price=1450.0,
+            quantity=1,
+            saved_by='pytest',
+            labor_profile='standard',
+            include_media_charge=True,
+        )
+        assert saved['saved_template']['package_kind'] == 'filter'
+        assert saved['saved_template']['builder_profile'] == 'sand_filter_replacement'
+        assert any(item['template_slug'] == saved['saved_template']['template_slug'] for item in list_equipment_package_templates(session, package_kind='filter'))
+
+
+def test_apply_builder_created_automation_template_to_quote_case_creates_attachment():
+    with Session(engine) as session:
+        case = create_quote_case(
+            session,
+            pipeline_slug='new_residential_services',
+            title='Automation builder target case',
+            requester_name='Automation Owner',
+            requester_email='automation@example.com',
+        )
+        saved = create_equipment_package_template_from_builder(
+            session,
+            template_name='Automation Builder Template',
+            package_kind='automation',
+            builder_profile='panel_upgrade',
+            equipment_name='Jandy iAquaLink Panel',
+            equipment_unit_price=2600.0,
+            quantity=1,
+            saved_by='pytest',
+            labor_profile='complex',
+            include_relay_pack=True,
+            include_actuator_pack=True,
+            include_controller_integration=True,
+        )
+        applied = apply_equipment_package_template_to_quote_case(
+            session,
+            template_slug=saved['saved_template']['template_slug'],
+            quote_case_id=case.id,
+            attached_by='pytest',
+            replace_existing=False,
+        )
+        assert applied['external_link']['system_slug'] == 'equipment_package'
+        workspace = get_quote_case_equipment_package_workspace(session, case.id)
+        assert workspace['package_count'] == 1
+        assert workspace['packages'][0]['package_kind'] == 'automation'
+

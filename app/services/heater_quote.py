@@ -163,6 +163,252 @@ DEFAULT_EQUIPMENT_PACKAGE_TEMPLATE_CONFIG: dict[str, Any] = {
     'templates': [],
 }
 
+DEFAULT_EQUIPMENT_FAMILY_BUILDER_CONFIG: dict[str, Any] = {
+    'version': 'platform_block_2f_family_package_builders',
+    'labor_profiles': {
+        'standard': {'label': 'Standard install', 'labor_rate': 125.0, 'base_hours': 1.5, 'hours_per_unit': 3.0},
+        'simple_swap': {'label': 'Simple swap', 'labor_rate': 125.0, 'base_hours': 1.0, 'hours_per_unit': 2.0},
+        'complex': {'label': 'Complex install', 'labor_rate': 135.0, 'base_hours': 2.5, 'hours_per_unit': 4.0},
+    },
+    'families': {
+        'pump': {
+            'label': 'Pump package builder',
+            'default_profile': 'variable_speed_upgrade',
+            'default_labor_profile': 'standard',
+            'profiles': {
+                'variable_speed_upgrade': {
+                    'label': 'Variable speed upgrade',
+                    'default_equipment_name': 'Variable speed pump',
+                    'equipment_description': 'Pump equipment allowance from the selected equipment family builder.',
+                    'default_options': {
+                        'include_plumbing_kit': True,
+                        'include_pad_kit': True,
+                        'include_electrical_allowance': True,
+                        'include_startup_visit': True,
+                        'include_controller_integration': False,
+                    },
+                    'option_labels': {
+                        'include_plumbing_kit': 'Include plumbing kit',
+                        'include_pad_kit': 'Include pad / stand allowance',
+                        'include_electrical_allowance': 'Include electrical allowance',
+                        'include_startup_visit': 'Include startup visit',
+                        'include_controller_integration': 'Include controller integration',
+                    },
+                    'line_items': {
+                        'plumbing_kit': {'name': 'Pump union and plumbing kit', 'description': 'Unions, fittings, and tie-in materials for pump replacement.', 'amount': 165.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'pad_kit': {'name': 'Pump pad / base allowance', 'description': 'Pad materials or shimming allowance for a clean pump install.', 'amount': 140.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'electrical_allowance': {'name': 'Pump electrical allowance', 'description': 'Basic whip, disconnect, breaker, or reconnect allowance.', 'amount': 325.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'startup_visit': {'name': 'Pump startup visit', 'description': 'Programming, priming, and start-up verification.', 'amount': 165.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'controller_integration': {'name': 'Automation integration allowance', 'description': 'Variable speed schedule setup with existing controls.', 'amount': 285.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                    },
+                },
+                'single_speed_swap': {
+                    'label': 'Single speed swap',
+                    'default_equipment_name': 'Replacement pump',
+                    'equipment_description': 'Pump equipment allowance from the selected equipment family builder.',
+                    'default_options': {
+                        'include_plumbing_kit': True,
+                        'include_pad_kit': False,
+                        'include_electrical_allowance': False,
+                        'include_startup_visit': True,
+                        'include_controller_integration': False,
+                    },
+                    'option_labels': {
+                        'include_plumbing_kit': 'Include plumbing kit',
+                        'include_pad_kit': 'Include pad / stand allowance',
+                        'include_electrical_allowance': 'Include electrical allowance',
+                        'include_startup_visit': 'Include startup visit',
+                        'include_controller_integration': 'Include controller integration',
+                    },
+                    'line_items': {
+                        'plumbing_kit': {'name': 'Pump union and plumbing kit', 'description': 'Unions, fittings, and tie-in materials for pump replacement.', 'amount': 145.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'pad_kit': {'name': 'Pump pad / base allowance', 'description': 'Pad materials or shimming allowance for a clean pump install.', 'amount': 120.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'electrical_allowance': {'name': 'Pump electrical allowance', 'description': 'Basic reconnect allowance when required.', 'amount': 180.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'startup_visit': {'name': 'Pump startup visit', 'description': 'Prime, pressure, and flow verification.', 'amount': 145.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'controller_integration': {'name': 'Automation integration allowance', 'description': 'Basic controller reconnect allowance.', 'amount': 185.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                    },
+                },
+            },
+        },
+        'filter': {
+            'label': 'Filter package builder',
+            'default_profile': 'cartridge_replacement',
+            'default_labor_profile': 'standard',
+            'profiles': {
+                'cartridge_replacement': {
+                    'label': 'Cartridge filter replacement',
+                    'default_equipment_name': 'Cartridge filter body',
+                    'equipment_description': 'Filter equipment allowance from the selected equipment family builder.',
+                    'default_options': {
+                        'include_plumbing_kit': True,
+                        'include_pad_kit': True,
+                        'include_startup_visit': True,
+                        'include_media_charge': False,
+                    },
+                    'option_labels': {
+                        'include_plumbing_kit': 'Include plumbing kit',
+                        'include_pad_kit': 'Include pad / stand allowance',
+                        'include_startup_visit': 'Include startup visit',
+                        'include_media_charge': 'Include media charge',
+                    },
+                    'line_items': {
+                        'plumbing_kit': {'name': 'Filter plumbing and union kit', 'description': 'Plumbing materials for filter changeout and reconnection.', 'amount': 185.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'pad_kit': {'name': 'Filter pad / base allowance', 'description': 'Pad materials or stand allowance for filter install.', 'amount': 155.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'startup_visit': {'name': 'Filter startup visit', 'description': 'Pressure, flow, and air-relief verification.', 'amount': 150.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'media_charge': {'name': 'Filter media allowance', 'description': 'Allowance for sand, glass, or DE media when applicable.', 'amount': 220.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                    },
+                },
+                'sand_filter_replacement': {
+                    'label': 'Sand filter replacement',
+                    'default_equipment_name': 'Sand filter body',
+                    'equipment_description': 'Filter equipment allowance from the selected equipment family builder.',
+                    'default_options': {
+                        'include_plumbing_kit': True,
+                        'include_pad_kit': True,
+                        'include_startup_visit': True,
+                        'include_media_charge': True,
+                    },
+                    'option_labels': {
+                        'include_plumbing_kit': 'Include plumbing kit',
+                        'include_pad_kit': 'Include pad / stand allowance',
+                        'include_startup_visit': 'Include startup visit',
+                        'include_media_charge': 'Include media charge',
+                    },
+                    'line_items': {
+                        'plumbing_kit': {'name': 'Filter plumbing and union kit', 'description': 'Plumbing materials for filter changeout and reconnection.', 'amount': 195.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'pad_kit': {'name': 'Filter pad / base allowance', 'description': 'Pad materials or stand allowance for filter install.', 'amount': 165.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'startup_visit': {'name': 'Filter startup visit', 'description': 'Pressure, flow, and air-relief verification.', 'amount': 165.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'media_charge': {'name': 'Filter media allowance', 'description': 'Allowance for sand or glass media.', 'amount': 260.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                    },
+                },
+            },
+        },
+        'salt_system': {
+            'label': 'Salt system package builder',
+            'default_profile': 'salt_conversion',
+            'default_labor_profile': 'standard',
+            'profiles': {
+                'salt_conversion': {
+                    'label': 'Salt conversion package',
+                    'default_equipment_name': 'Salt cell and power center',
+                    'equipment_description': 'Salt system equipment allowance from the selected equipment family builder.',
+                    'default_options': {
+                        'include_plumbing_kit': True,
+                        'include_electrical_allowance': True,
+                        'include_salt_charge': True,
+                        'include_startup_visit': True,
+                        'include_controller_integration': False,
+                    },
+                    'option_labels': {
+                        'include_plumbing_kit': 'Include plumbing kit',
+                        'include_electrical_allowance': 'Include electrical allowance',
+                        'include_salt_charge': 'Include startup salt allowance',
+                        'include_startup_visit': 'Include startup visit',
+                        'include_controller_integration': 'Include controller integration',
+                    },
+                    'line_items': {
+                        'plumbing_kit': {'name': 'Salt cell plumbing kit', 'description': 'Cell unions, bypass, and plumbing materials.', 'amount': 125.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'electrical_allowance': {'name': 'Salt electrical allowance', 'description': 'Power center feed, disconnect, and tie-in allowance.', 'amount': 260.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'salt_charge': {'name': 'Startup salt allowance', 'description': 'Startup salt and initial balance allowance.', 'amount': 185.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'startup_visit': {'name': 'Salt startup visit', 'description': 'Startup, salinity verification, and customer handoff.', 'amount': 185.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'controller_integration': {'name': 'Automation integration allowance', 'description': 'Enable and schedule salt system through existing controls.', 'amount': 225.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                    },
+                },
+                'cell_replacement': {
+                    'label': 'Salt cell replacement',
+                    'default_equipment_name': 'Replacement salt cell',
+                    'equipment_description': 'Salt system equipment allowance from the selected equipment family builder.',
+                    'default_options': {
+                        'include_plumbing_kit': False,
+                        'include_electrical_allowance': False,
+                        'include_salt_charge': False,
+                        'include_startup_visit': True,
+                        'include_controller_integration': False,
+                    },
+                    'option_labels': {
+                        'include_plumbing_kit': 'Include plumbing kit',
+                        'include_electrical_allowance': 'Include electrical allowance',
+                        'include_salt_charge': 'Include startup salt allowance',
+                        'include_startup_visit': 'Include startup visit',
+                        'include_controller_integration': 'Include controller integration',
+                    },
+                    'line_items': {
+                        'plumbing_kit': {'name': 'Salt cell union allowance', 'description': 'Union or adaptor allowance for cell swap.', 'amount': 80.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'electrical_allowance': {'name': 'Salt electrical allowance', 'description': 'Power center reconnect allowance.', 'amount': 150.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'salt_charge': {'name': 'Startup salt allowance', 'description': 'Top-off salt allowance when needed.', 'amount': 95.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'startup_visit': {'name': 'Salt startup visit', 'description': 'Startup and output verification.', 'amount': 145.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'controller_integration': {'name': 'Automation integration allowance', 'description': 'Reconnect salt cell controls to automation.', 'amount': 175.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                    },
+                },
+            },
+        },
+        'automation': {
+            'label': 'Automation package builder',
+            'default_profile': 'panel_upgrade',
+            'default_labor_profile': 'complex',
+            'profiles': {
+                'panel_upgrade': {
+                    'label': 'Automation panel upgrade',
+                    'default_equipment_name': 'Automation control panel',
+                    'equipment_description': 'Automation package allowance from the selected equipment family builder.',
+                    'default_options': {
+                        'include_electrical_allowance': True,
+                        'include_relay_pack': True,
+                        'include_actuator_pack': True,
+                        'include_controller_integration': True,
+                        'include_startup_visit': True,
+                    },
+                    'option_labels': {
+                        'include_electrical_allowance': 'Include electrical allowance',
+                        'include_relay_pack': 'Include relay / expansion allowance',
+                        'include_actuator_pack': 'Include actuator allowance',
+                        'include_controller_integration': 'Include programming / integration allowance',
+                        'include_startup_visit': 'Include startup visit',
+                    },
+                    'line_items': {
+                        'electrical_allowance': {'name': 'Automation electrical allowance', 'description': 'Breaker, feeders, disconnect, and tie-in allowance.', 'amount': 340.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'relay_pack': {'name': 'Relay / expansion allowance', 'description': 'Relay module or expansion board allowance.', 'amount': 420.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'actuator_pack': {'name': 'Actuator allowance', 'description': 'Valve actuator allowance for automation package.', 'amount': 220.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'controller_integration': {'name': 'Programming and integration allowance', 'description': 'Controller setup, schedule programming, and equipment integration.', 'amount': 375.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'startup_visit': {'name': 'Automation startup visit', 'description': 'On-site programming verification and customer walkthrough.', 'amount': 225.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                    },
+                },
+                'automation_addon': {
+                    'label': 'Automation add-on package',
+                    'default_equipment_name': 'Automation add-on kit',
+                    'equipment_description': 'Automation package allowance from the selected equipment family builder.',
+                    'default_options': {
+                        'include_electrical_allowance': False,
+                        'include_relay_pack': True,
+                        'include_actuator_pack': True,
+                        'include_controller_integration': True,
+                        'include_startup_visit': True,
+                    },
+                    'option_labels': {
+                        'include_electrical_allowance': 'Include electrical allowance',
+                        'include_relay_pack': 'Include relay / expansion allowance',
+                        'include_actuator_pack': 'Include actuator allowance',
+                        'include_controller_integration': 'Include programming / integration allowance',
+                        'include_startup_visit': 'Include startup visit',
+                    },
+                    'line_items': {
+                        'electrical_allowance': {'name': 'Automation electrical allowance', 'description': 'Basic tie-in allowance when required.', 'amount': 220.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'relay_pack': {'name': 'Relay / expansion allowance', 'description': 'Relay module or expansion board allowance.', 'amount': 260.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'actuator_pack': {'name': 'Actuator allowance', 'description': 'Valve actuator allowance for automation package.', 'amount': 220.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'controller_integration': {'name': 'Programming and integration allowance', 'description': 'Controller setup and equipment integration.', 'amount': 265.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                        'startup_visit': {'name': 'Automation startup visit', 'description': 'On-site verification and walkthrough.', 'amount': 185.0, 'qty_mode': 'per_system', 'category': 'misc_materials'},
+                    },
+                },
+            },
+        },
+    },
+}
+
+
+def get_equipment_family_builder_catalog(session: Session | None = None) -> dict[str, Any]:
+    return loads(dumps(DEFAULT_EQUIPMENT_FAMILY_BUILDER_CONFIG), {})
+
+
 
 def _slugify_template_name(value: str) -> str:
     slug = ''.join(ch.lower() if ch.isalnum() else '-' for ch in str(value or '').strip())
@@ -388,6 +634,278 @@ def create_manual_equipment_package_template(
     return {
         'saved_template': template,
         'template_summary': get_equipment_package_template_summary(session),
+    }
+
+
+def _resolve_equipment_family_builder(package_kind: str, builder_profile: str | None) -> tuple[dict[str, Any], dict[str, Any], str, str]:
+    catalog = get_equipment_family_builder_catalog()
+    normalized_kind = _normalize_template_package_kind(package_kind)
+    family = catalog.get('families', {}).get(normalized_kind)
+    if not isinstance(family, dict):
+        raise ValueError('Unsupported equipment package family for builder')
+    profile_slug = str(builder_profile or family.get('default_profile') or '').strip() or str(family.get('default_profile') or '')
+    profiles = family.get('profiles', {}) if isinstance(family.get('profiles'), dict) else {}
+    profile = profiles.get(profile_slug)
+    if not isinstance(profile, dict):
+        raise ValueError('Equipment package builder profile not found')
+    return family, profile, normalized_kind, profile_slug
+
+
+_DEF_BUILDER_OPTION_FIELDS = {
+    'include_plumbing_kit': 'plumbing_kit',
+    'include_pad_kit': 'pad_kit',
+    'include_electrical_allowance': 'electrical_allowance',
+    'include_startup_visit': 'startup_visit',
+    'include_media_charge': 'media_charge',
+    'include_salt_charge': 'salt_charge',
+    'include_relay_pack': 'relay_pack',
+    'include_actuator_pack': 'actuator_pack',
+    'include_controller_integration': 'controller_integration',
+}
+
+
+def _builder_options_from_inputs(profile: dict[str, Any], **kwargs: Any) -> dict[str, bool]:
+    defaults = profile.get('default_options', {}) if isinstance(profile.get('default_options'), dict) else {}
+    resolved: dict[str, bool] = {}
+    for option_name, _slug in _DEF_BUILDER_OPTION_FIELDS.items():
+        if option_name in kwargs and kwargs[option_name] is not None:
+            resolved[option_name] = bool(kwargs[option_name])
+        else:
+            resolved[option_name] = bool(defaults.get(option_name, False))
+    return resolved
+
+
+
+def _append_builder_line(lines: list[dict[str, Any]], profile: dict[str, Any], slug: str, *, enabled: bool, quantity: int, currency_code: str) -> None:
+    if not enabled:
+        return
+    templates = profile.get('line_items', {}) if isinstance(profile.get('line_items'), dict) else {}
+    template = templates.get(slug)
+    if not isinstance(template, dict):
+        return
+    qty_mode = str(template.get('qty_mode') or 'per_system')
+    line_qty = float(quantity if qty_mode == 'per_unit' else 1.0)
+    lines.append(
+        {
+            'name': str(template.get('name') or slug.replace('_', ' ').title()),
+            'description': str(template.get('description') or ''),
+            'qty': line_qty,
+            'amount': round(float(template.get('amount') or 0), 2),
+            'category': str(template.get('category') or 'misc_materials'),
+            'code': currency_code,
+            'currency_code': currency_code,
+        }
+    )
+
+
+
+def build_equipment_package_template_from_builder_preview(
+    session: Session,
+    *,
+    package_kind: str,
+    builder_profile: str,
+    equipment_name: str,
+    equipment_unit_price: float,
+    quantity: int = 1,
+    saved_by: str = 'operator',
+    template_description: str = '',
+    labor_profile: str | None = None,
+    include_plumbing_kit: bool | None = None,
+    include_pad_kit: bool | None = None,
+    include_electrical_allowance: bool | None = None,
+    include_startup_visit: bool | None = None,
+    include_media_charge: bool | None = None,
+    include_salt_charge: bool | None = None,
+    include_relay_pack: bool | None = None,
+    include_actuator_pack: bool | None = None,
+    include_controller_integration: bool | None = None,
+    misc_materials_amount: float = 0.0,
+    labor_rate_override: float | None = None,
+) -> dict[str, Any]:
+    family, profile, normalized_kind, profile_slug = _resolve_equipment_family_builder(package_kind, builder_profile)
+    quantity = max(int(quantity or 1), 1)
+    labor_catalog = get_equipment_family_builder_catalog().get('labor_profiles', {})
+    selected_labor_profile = str(labor_profile or family.get('default_labor_profile') or 'standard')
+    labor_spec = labor_catalog.get(selected_labor_profile)
+    if not isinstance(labor_spec, dict):
+        raise ValueError('Equipment package labor profile not found')
+
+    currency_code = 'USD'
+    normalized_equipment_name = str(equipment_name or profile.get('default_equipment_name') or f'{family.get("label", normalized_kind.title())} equipment').strip()
+    if not normalized_equipment_name:
+        raise ValueError('Equipment name is required for a builder package')
+    try:
+        unit_price = round(float(equipment_unit_price or 0), 2)
+    except (TypeError, ValueError):
+        unit_price = 0.0
+    options = _builder_options_from_inputs(
+        profile,
+        include_plumbing_kit=include_plumbing_kit,
+        include_pad_kit=include_pad_kit,
+        include_electrical_allowance=include_electrical_allowance,
+        include_startup_visit=include_startup_visit,
+        include_media_charge=include_media_charge,
+        include_salt_charge=include_salt_charge,
+        include_relay_pack=include_relay_pack,
+        include_actuator_pack=include_actuator_pack,
+        include_controller_integration=include_controller_integration,
+    )
+
+    lines: list[dict[str, Any]] = [
+        {
+            'name': normalized_equipment_name,
+            'description': str(profile.get('equipment_description') or ''),
+            'qty': float(quantity),
+            'amount': unit_price,
+            'category': 'equipment',
+            'code': currency_code,
+            'currency_code': currency_code,
+        }
+    ]
+    for option_name, slug in _DEF_BUILDER_OPTION_FIELDS.items():
+        _append_builder_line(lines, profile, slug, enabled=options.get(option_name, False), quantity=quantity, currency_code=currency_code)
+    try:
+        misc_amount = round(float(misc_materials_amount or 0), 2)
+    except (TypeError, ValueError):
+        misc_amount = 0.0
+    if misc_amount > 0:
+        lines.append(
+            {
+                'name': 'Miscellaneous materials allowance',
+                'description': 'Additional one-off materials allowance from the family builder.',
+                'qty': 1.0,
+                'amount': misc_amount,
+                'category': 'misc_materials',
+                'code': currency_code,
+                'currency_code': currency_code,
+            }
+        )
+    labor_rate = round(float(labor_rate_override if labor_rate_override is not None else labor_spec.get('labor_rate') or 0), 2)
+    labor_hours = round(float(labor_spec.get('base_hours') or 0) + (float(labor_spec.get('hours_per_unit') or 0) * quantity), 2)
+    lines.append(
+        {
+            'name': f"{family.get('label', normalized_kind.title())} labor",
+            'description': f"{profile.get('label', profile_slug)} labor using {labor_spec.get('label', selected_labor_profile)} profile.",
+            'qty': labor_hours,
+            'amount': labor_rate,
+            'category': 'labor',
+            'code': currency_code,
+            'currency_code': currency_code,
+        }
+    )
+    normalized_lines = _normalize_package_lines(lines, currency_code)
+    package_summary = _summarize_package_lines(
+        normalized_lines,
+        {
+            'currency_code': currency_code,
+            'package_kind': normalized_kind,
+            'builder_profile': profile_slug,
+            'builder_profile_label': profile.get('label', profile_slug),
+            'builder_family_label': family.get('label', normalized_kind.title()),
+            'labor_profile': selected_labor_profile,
+            'labor_profile_label': labor_spec.get('label', selected_labor_profile),
+            'template_description': template_description,
+            'quantity': quantity,
+            'equipment_name': normalized_equipment_name,
+            'equipment_unit_price': unit_price,
+            'builder_options': options,
+        },
+        edited=False,
+        edited_by=saved_by,
+    )
+    return {
+        'package_kind': normalized_kind,
+        'builder_profile': profile_slug,
+        'builder_profile_label': profile.get('label', profile_slug),
+        'builder_family_label': family.get('label', normalized_kind.title()),
+        'labor_profile': selected_labor_profile,
+        'labor_profile_label': labor_spec.get('label', selected_labor_profile),
+        'builder_options': options,
+        'prepared_lines': normalized_lines,
+        'package_summary': package_summary,
+    }
+
+
+
+def create_equipment_package_template_from_builder(
+    session: Session,
+    *,
+    template_name: str,
+    package_kind: str,
+    builder_profile: str,
+    equipment_name: str,
+    equipment_unit_price: float,
+    quantity: int = 1,
+    saved_by: str = 'operator',
+    template_description: str = '',
+    labor_profile: str | None = None,
+    include_plumbing_kit: bool | None = None,
+    include_pad_kit: bool | None = None,
+    include_electrical_allowance: bool | None = None,
+    include_startup_visit: bool | None = None,
+    include_media_charge: bool | None = None,
+    include_salt_charge: bool | None = None,
+    include_relay_pack: bool | None = None,
+    include_actuator_pack: bool | None = None,
+    include_controller_integration: bool | None = None,
+    misc_materials_amount: float = 0.0,
+    labor_rate_override: float | None = None,
+) -> dict[str, Any]:
+    preview = build_equipment_package_template_from_builder_preview(
+        session,
+        package_kind=package_kind,
+        builder_profile=builder_profile,
+        equipment_name=equipment_name,
+        equipment_unit_price=equipment_unit_price,
+        quantity=quantity,
+        saved_by=saved_by,
+        template_description=template_description,
+        labor_profile=labor_profile,
+        include_plumbing_kit=include_plumbing_kit,
+        include_pad_kit=include_pad_kit,
+        include_electrical_allowance=include_electrical_allowance,
+        include_startup_visit=include_startup_visit,
+        include_media_charge=include_media_charge,
+        include_salt_charge=include_salt_charge,
+        include_relay_pack=include_relay_pack,
+        include_actuator_pack=include_actuator_pack,
+        include_controller_integration=include_controller_integration,
+        misc_materials_amount=misc_materials_amount,
+        labor_rate_override=labor_rate_override,
+    )
+    existing = _get_equipment_package_templates(session)
+    template_slug = _next_available_template_slug(existing, _slugify_template_name(template_name or f"{preview['package_kind']}-package"))
+    now_iso = datetime.utcnow().isoformat()
+    template = {
+        'template_slug': template_slug,
+        'template_name': str(template_name or f"{preview['builder_family_label']} template").strip(),
+        'package_kind': preview['package_kind'],
+        'saved_by': saved_by,
+        'created_at': now_iso,
+        'updated_at': now_iso,
+        'source_quote_case_id': None,
+        'source_external_link_id': None,
+        'candidate': {},
+        'package_summary': preview['package_summary'],
+        'prepared_lines': preview['prepared_lines'],
+        'original_prepared_lines': preview['prepared_lines'],
+        'template_description': template_description,
+        'builder_profile': preview['builder_profile'],
+        'builder_profile_label': preview['builder_profile_label'],
+        'builder_family_label': preview['builder_family_label'],
+        'builder_options': preview['builder_options'],
+    }
+    templates = existing + [template]
+    set_setting(
+        session,
+        'equipment_package_templates',
+        {'version': DEFAULT_EQUIPMENT_PACKAGE_TEMPLATE_CONFIG['version'], 'templates': templates},
+        'Reusable equipment package templates saved from attached quote packages and later applied back into quote cases.',
+    )
+    return {
+        'saved_template': template,
+        'template_summary': get_equipment_package_template_summary(session),
+        'builder_preview': preview,
     }
 
 

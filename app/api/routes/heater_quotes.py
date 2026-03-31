@@ -10,14 +10,17 @@ from app.services.heater_quote import (
     attach_heater_candidate_to_quote_case,
     build_heater_package_preview,
     create_heater_quote_run,
+    create_equipment_package_template_from_builder,
     create_manual_equipment_package_template,
     delete_equipment_package_template,
     delete_heater_quote_run,
+    get_equipment_family_builder_catalog,
     get_equipment_package_template_summary,
     get_heater_quote_dashboard_summary,
     get_heater_quote_settings,
     get_quote_case_equipment_package_workspace,
     list_equipment_package_templates,
+    build_equipment_package_template_from_builder_preview,
     list_heater_quote_runs,
     reset_heater_package_lines,
     save_heater_package_template,
@@ -115,6 +118,29 @@ class ApplyEquipmentPackageTemplateBody(BaseModel):
     quote_case_id: int
     attached_by: str = 'operator'
     replace_existing: bool = False
+
+class EquipmentPackageBuilderBody(BaseModel):
+    template_name: str
+    package_kind: str
+    builder_profile: str
+    equipment_name: str
+    equipment_unit_price: float = 0.0
+    quantity: int = Field(default=1, ge=1, le=24)
+    saved_by: str = 'operator'
+    template_description: str = ''
+    labor_profile: str = 'standard'
+    include_plumbing_kit: bool | None = None
+    include_pad_kit: bool | None = None
+    include_electrical_allowance: bool | None = None
+    include_startup_visit: bool | None = None
+    include_media_charge: bool | None = None
+    include_salt_charge: bool | None = None
+    include_relay_pack: bool | None = None
+    include_actuator_pack: bool | None = None
+    include_controller_integration: bool | None = None
+    misc_materials_amount: float = 0.0
+    labor_rate_override: float | None = None
+
 
 
 @router.get('/config')
@@ -276,6 +302,74 @@ def heater_quote_templates(package_kind: str | None = None):
             'templates': list_equipment_package_templates(session, package_kind=package_kind),
             'summary': get_equipment_package_template_summary(session),
         }
+
+
+@router.get('/builders')
+def equipment_package_builders():
+    with Session(engine) as session:
+        return get_equipment_family_builder_catalog(session)
+
+
+@router.post('/templates/builder-preview')
+def build_equipment_package_template_preview_route(body: EquipmentPackageBuilderBody):
+    with Session(engine) as session:
+        try:
+            return build_equipment_package_template_from_builder_preview(
+                session,
+                template_name=body.template_name,
+                package_kind=body.package_kind,
+                builder_profile=body.builder_profile,
+                equipment_name=body.equipment_name,
+                equipment_unit_price=body.equipment_unit_price,
+                quantity=body.quantity,
+                saved_by=body.saved_by,
+                template_description=body.template_description,
+                labor_profile=body.labor_profile,
+                include_plumbing_kit=body.include_plumbing_kit,
+                include_pad_kit=body.include_pad_kit,
+                include_electrical_allowance=body.include_electrical_allowance,
+                include_startup_visit=body.include_startup_visit,
+                include_media_charge=body.include_media_charge,
+                include_salt_charge=body.include_salt_charge,
+                include_relay_pack=body.include_relay_pack,
+                include_actuator_pack=body.include_actuator_pack,
+                include_controller_integration=body.include_controller_integration,
+                misc_materials_amount=body.misc_materials_amount,
+                labor_rate_override=body.labor_rate_override,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post('/templates/builder')
+def create_equipment_package_template_from_builder_route(body: EquipmentPackageBuilderBody):
+    with Session(engine) as session:
+        try:
+            return create_equipment_package_template_from_builder(
+                session,
+                template_name=body.template_name,
+                package_kind=body.package_kind,
+                builder_profile=body.builder_profile,
+                equipment_name=body.equipment_name,
+                equipment_unit_price=body.equipment_unit_price,
+                quantity=body.quantity,
+                saved_by=body.saved_by,
+                template_description=body.template_description,
+                labor_profile=body.labor_profile,
+                include_plumbing_kit=body.include_plumbing_kit,
+                include_pad_kit=body.include_pad_kit,
+                include_electrical_allowance=body.include_electrical_allowance,
+                include_startup_visit=body.include_startup_visit,
+                include_media_charge=body.include_media_charge,
+                include_salt_charge=body.include_salt_charge,
+                include_relay_pack=body.include_relay_pack,
+                include_actuator_pack=body.include_actuator_pack,
+                include_controller_integration=body.include_controller_integration,
+                misc_materials_amount=body.misc_materials_amount,
+                labor_rate_override=body.labor_rate_override,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post('/templates/save')

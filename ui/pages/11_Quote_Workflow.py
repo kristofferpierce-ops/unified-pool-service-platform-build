@@ -30,7 +30,7 @@ from app.services.freshbooks_sync import (
     refresh_quote_case_from_freshbooks,
     sync_quote_case_to_freshbooks,
 )
-from app.services.heater_quote import apply_equipment_package_template_to_quote_case, create_manual_equipment_package_template, delete_equipment_package_template, get_equipment_package_template_summary, get_quote_case_equipment_package_workspace, list_equipment_package_templates, remove_heater_package_from_quote_case, reset_heater_package_lines, save_heater_package_template, update_heater_package_lines
+from app.services.heater_quote import apply_equipment_package_template_to_quote_case, build_equipment_package_template_from_builder_preview, create_equipment_package_template_from_builder, create_manual_equipment_package_template, delete_equipment_package_template, get_equipment_family_builder_catalog, get_equipment_package_template_summary, get_quote_case_equipment_package_workspace, list_equipment_package_templates, remove_heater_package_from_quote_case, reset_heater_package_lines, save_heater_package_template, update_heater_package_lines
 from app.services.quote_workflow import (
     create_quote_case,
     get_dashboard_summary,
@@ -54,6 +54,7 @@ with Session(engine) as session:
     freshbooks_summary = get_freshbooks_mapping_summary(session)
     equipment_template_summary = get_equipment_package_template_summary(session)
     equipment_package_templates = list_equipment_package_templates(session)
+    equipment_family_builder_catalog = get_equipment_family_builder_catalog(session)
 
 pipeline_options = workflow_config.get('pipelines', [])
 pipeline_lookup = {item['slug']: item for item in pipeline_options}
@@ -258,6 +259,154 @@ else:
 
 
             with st.expander(f"Attached equipment packages for {case['quote_number']}", expanded=False):
+
+                with st.expander('Create builder equipment package template', expanded=False):
+                    builder_families = equipment_family_builder_catalog.get('families', {}) if isinstance(equipment_family_builder_catalog, dict) else {}
+                    builder_labor_profiles = equipment_family_builder_catalog.get('labor_profiles', {}) if isinstance(equipment_family_builder_catalog, dict) else {}
+                    builder_family_options = list(builder_families.keys()) or ['pump', 'filter', 'salt_system', 'automation']
+                    builder_family_col, builder_profile_col = st.columns([1, 2])
+                    builder_family = builder_family_col.selectbox(
+                        'Builder family',
+                        options=builder_family_options,
+                        key=f'builder_family_{case["id"]}',
+                        format_func=lambda slug, families=builder_families: families.get(slug, {}).get('label', slug.replace('_', ' ').title()),
+                        help='Choose the equipment family to build from a structured starter profile.',
+                    )
+                    selected_family = builder_families.get(builder_family, {})
+                    family_profiles = selected_family.get('profiles', {}) if isinstance(selected_family.get('profiles'), dict) else {}
+                    builder_profile_options = list(family_profiles.keys())
+                    default_profile = selected_family.get('default_profile') if isinstance(selected_family, dict) else None
+                    default_index = builder_profile_options.index(default_profile) if default_profile in builder_profile_options else 0
+                    builder_profile = builder_profile_col.selectbox(
+                        'Builder profile',
+                        options=builder_profile_options,
+                        index=default_index if builder_profile_options else 0,
+                        key=f'builder_profile_{case["id"]}',
+                        format_func=lambda slug, profiles=family_profiles: profiles.get(slug, {}).get('label', slug.replace('_', ' ').title()),
+                        help='Pick the family-specific starter package profile to build from.',
+                    )
+                    selected_profile = family_profiles.get(builder_profile, {}) if builder_profile else {}
+                    option_labels = selected_profile.get('option_labels', {}) if isinstance(selected_profile.get('option_labels'), dict) else {}
+                    builder_name_col, builder_equipment_col = st.columns([2, 2])
+                    builder_template_name = builder_name_col.text_input(
+                        'Builder template name',
+                        value=f"{selected_family.get('label', builder_family.replace('_', ' ').title())} template",
+                        key=f'builder_template_name_{case["id"]}',
+                        help='Reusable template name created from the family builder.',
+                    )
+                    builder_equipment_name = builder_equipment_col.text_input(
+                        'Equipment label',
+                        value=selected_profile.get('default_equipment_name', ''),
+                        key=f'builder_equipment_name_{case["id"]}',
+                        help='Customer-facing equipment label used on the created package template.',
+                    )
+                    builder_price_col, builder_qty_col, builder_labor_col = st.columns([1, 1, 1])
+                    builder_unit_price = builder_price_col.number_input(
+                        'Equipment unit price',
+                        min_value=0.0,
+                        value=0.0,
+                        step=50.0,
+                        key=f'builder_equipment_price_{case["id"]}',
+                        help='Per-unit equipment allowance that becomes the equipment line in the package.',
+                    )
+                    builder_quantity = builder_qty_col.number_input(
+                        'Quantity',
+                        min_value=1,
+                        max_value=24,
+                        value=1,
+                        step=1,
+                        key=f'builder_quantity_{case["id"]}',
+                        help='How many units of this equipment family should be included in the built template.',
+                    )
+                    labor_profile_options = list(builder_labor_profiles.keys()) or ['standard']
+                    builder_labor_profile = builder_labor_col.selectbox(
+                        'Labor profile',
+                        options=labor_profile_options,
+                        key=f'builder_labor_profile_{case["id"]}',
+                        format_func=lambda slug, labor=builder_labor_profiles: labor.get(slug, {}).get('label', slug.replace('_', ' ').title()),
+                        help='Choose the labor profile used when building the package template.',
+                    )
+                    builder_note = st.text_input(
+                        'Builder note',
+                        key=f'builder_note_{case["id"]}',
+                        help='Optional internal note stored with the reusable package template.',
+                    )
+                    builder_misc_materials = st.number_input(
+                        'Miscellaneous materials allowance',
+                        min_value=0.0,
+                        value=0.0,
+                        step=25.0,
+                        key=f'builder_misc_materials_{case["id"]}',
+                        help='Optional additional materials allowance added as its own package line.',
+                    )
+                    builder_option_values = {}
+                    if option_labels:
+                        st.caption('Builder options')
+                        option_columns = st.columns(2)
+                        for index, (option_name, option_label) in enumerate(option_labels.items()):
+                            default_value = bool((selected_profile.get('default_options') or {}).get(option_name, False))
+                            builder_option_values[option_name] = option_columns[index % 2].checkbox(
+                                option_label,
+                                value=default_value,
+                                key=f'builder_option_{case["id"]}_{builder_family}_{builder_profile}_{option_name}',
+                            )
+                    preview_payload = None
+                    preview_left, preview_right = st.columns([1, 1])
+                    if preview_left.button('Preview builder package', key=f'preview_builder_package_{case["id"]}', help='Preview the package lines this family builder will create before saving a reusable template.'): 
+                        with Session(engine) as session:
+                            try:
+                                preview_payload = build_equipment_package_template_from_builder_preview(
+                                    session,
+                                    template_name=builder_template_name,
+                                    package_kind=builder_family,
+                                    builder_profile=builder_profile,
+                                    equipment_name=builder_equipment_name,
+                                    equipment_unit_price=builder_unit_price,
+                                    quantity=int(builder_quantity),
+                                    saved_by='streamlit_operator',
+                                    template_description=builder_note,
+                                    labor_profile=builder_labor_profile,
+                                    misc_materials_amount=builder_misc_materials,
+                                    **builder_option_values,
+                                )
+                            except ValueError as exc:
+                                st.error(str(exc))
+                        if preview_payload:
+                            st.write('Builder preview')
+                            preview_rows = pd.DataFrame([
+                                {
+                                    'Name': line.get('name'),
+                                    'Description': line.get('description'),
+                                    'Qty': line.get('qty'),
+                                    'Unit Price': line.get('amount'),
+                                    'Category': line.get('category'),
+                                }
+                                for line in preview_payload['prepared_lines']
+                            ])
+                            st.dataframe(preview_rows, width='stretch')
+                            preview_summary = preview_payload.get('package_summary', {})
+                            st.caption(f"Preview total: {preview_summary.get('package_total', 0):,.2f} {preview_summary.get('currency_code', 'USD')}")
+                    if preview_right.button('Save builder package template', key=f'save_builder_package_template_{case["id"]}', help='Create a reusable package template from the selected equipment family builder.'): 
+                        with Session(engine) as session:
+                            try:
+                                create_equipment_package_template_from_builder(
+                                    session,
+                                    template_name=builder_template_name or f'{builder_family.title()} package template',
+                                    package_kind=builder_family,
+                                    builder_profile=builder_profile,
+                                    equipment_name=builder_equipment_name,
+                                    equipment_unit_price=builder_unit_price,
+                                    quantity=int(builder_quantity),
+                                    saved_by='streamlit_operator',
+                                    template_description=builder_note,
+                                    labor_profile=builder_labor_profile,
+                                    misc_materials_amount=builder_misc_materials,
+                                    **builder_option_values,
+                                )
+                                st.success('Builder equipment package template saved.')
+                            except ValueError as exc:
+                                st.error(str(exc))
+                        st.rerun()
 
                 with st.expander('Create manual equipment package template', expanded=False):
                     manual_kind_col, manual_name_col = st.columns([1, 2])
