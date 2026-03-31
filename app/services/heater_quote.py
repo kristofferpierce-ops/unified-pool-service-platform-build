@@ -154,6 +154,14 @@ DEFAULT_HEATER_QUOTE_CONFIG: dict[str, Any] = {
         ],
         'notes': 'Live Heritage pricing needs a normalized catalog feed or configured catalog URL plus account id and API key. Until then, the tool uses a starter planning catalog so the module still returns recommendation bands instead of an empty result.',
     },
+    'selector_scoring': {
+        'compatibility_base': 100.0,
+        'issue_penalty': 30.0,
+        'warning_penalty': 6.0,
+        'price_weight': 18.0,
+        'branch_bonus': 8.0,
+        'branch_miss_penalty': 4.0,
+    },
 
 }
 
@@ -474,6 +482,7 @@ DEFAULT_EQUIPMENT_SELECTOR_CATALOG: dict[str, Any] = {
                     'label': '3 HP Variable Speed Pump 230V',
                     'equipment_name': '3 HP Variable Speed Pump',
                     'default_unit_price': 2450.0,
+                    'branch_price_overlays': {'Key West': 2595.0, 'Miami': 2395.0, 'Marathon': 2495.0},
                     'builder_profile': 'variable_speed_upgrade',
                     'builder_options': {'include_controller_integration': True},
                     'selector_tags': {'voltage': '230V', 'speed_type': 'variable_speed', 'min_plumbing_size_in': 2.0},
@@ -483,6 +492,7 @@ DEFAULT_EQUIPMENT_SELECTOR_CATALOG: dict[str, Any] = {
                     'label': '1 HP Single Speed Pump 115V',
                     'equipment_name': '1 HP Single Speed Pump',
                     'default_unit_price': 925.0,
+                    'branch_price_overlays': {'Key West': 975.0, 'Miami': 899.0},
                     'builder_profile': 'single_speed_swap',
                     'builder_options': {'include_controller_integration': False},
                     'selector_tags': {'voltage': '115V', 'speed_type': 'single_speed', 'min_plumbing_size_in': 1.5},
@@ -501,6 +511,7 @@ DEFAULT_EQUIPMENT_SELECTOR_CATALOG: dict[str, Any] = {
                     'label': '425 sqft Cartridge Filter',
                     'equipment_name': '425 sqft Cartridge Filter',
                     'default_unit_price': 1650.0,
+                    'branch_price_overlays': {'Key West': 1710.0, 'Miami': 1610.0},
                     'builder_profile': 'cartridge_replacement',
                     'builder_options': {'include_media_charge': False},
                     'selector_tags': {'filter_style': 'cartridge', 'max_flow_gpm': 100.0},
@@ -510,6 +521,7 @@ DEFAULT_EQUIPMENT_SELECTOR_CATALOG: dict[str, Any] = {
                     'label': '30 in Sand Filter',
                     'equipment_name': '30 in Sand Filter',
                     'default_unit_price': 1550.0,
+                    'branch_price_overlays': {'Key West': 1625.0, 'Miami': 1495.0},
                     'builder_profile': 'sand_filter_replacement',
                     'builder_options': {'include_media_charge': True},
                     'selector_tags': {'filter_style': 'sand', 'max_flow_gpm': 90.0},
@@ -528,6 +540,7 @@ DEFAULT_EQUIPMENT_SELECTOR_CATALOG: dict[str, Any] = {
                     'label': 'Replacement Salt Cell rated for 25,000 gal',
                     'equipment_name': 'Replacement Salt Cell rated for 25,000 gal',
                     'default_unit_price': 999.0,
+                    'branch_price_overlays': {'Key West': 1045.0, 'Miami': 979.0},
                     'builder_profile': 'cell_replacement',
                     'builder_options': {'include_salt_charge': False, 'include_controller_integration': False},
                     'selector_tags': {'max_pool_gallons': 25000.0, 'automation_required': False},
@@ -537,6 +550,7 @@ DEFAULT_EQUIPMENT_SELECTOR_CATALOG: dict[str, Any] = {
                     'label': 'Salt System rated for 40,000 gal with automation support',
                     'equipment_name': 'Salt System rated for 40,000 gal',
                     'default_unit_price': 1895.0,
+                    'branch_price_overlays': {'Key West': 1965.0, 'Miami': 1845.0},
                     'builder_profile': 'salt_conversion',
                     'builder_options': {'include_salt_charge': True, 'include_controller_integration': True},
                     'selector_tags': {'max_pool_gallons': 40000.0, 'automation_required': True},
@@ -557,6 +571,7 @@ DEFAULT_EQUIPMENT_SELECTOR_CATALOG: dict[str, Any] = {
                     'label': '4 Relay Automation Panel',
                     'equipment_name': '4 Relay Automation Panel',
                     'default_unit_price': 1895.0,
+                    'branch_price_overlays': {'Key West': 1975.0, 'Miami': 1845.0},
                     'builder_profile': 'automation_addon',
                     'builder_options': {'include_relay_pack': False, 'include_actuator_pack': True, 'include_controller_integration': True},
                     'selector_tags': {'minimum_relays': 4, 'minimum_bodies': 1, 'heater_support': True, 'salt_support': False},
@@ -566,6 +581,7 @@ DEFAULT_EQUIPMENT_SELECTOR_CATALOG: dict[str, Any] = {
                     'label': '8 Relay Dual Body Automation Panel',
                     'equipment_name': '8 Relay Dual Body Automation Panel',
                     'default_unit_price': 2895.0,
+                    'branch_price_overlays': {'Key West': 2995.0, 'Miami': 2795.0},
                     'builder_profile': 'panel_upgrade',
                     'builder_options': {'include_relay_pack': True, 'include_actuator_pack': True, 'include_controller_integration': True},
                     'selector_tags': {'minimum_relays': 8, 'minimum_bodies': 2, 'heater_support': True, 'salt_support': True},
@@ -703,6 +719,161 @@ def evaluate_equipment_selector_compatibility(package_kind: str, item_slug: str,
     }
 
 
+
+
+def _normalize_branch_name(branch_name: str | None) -> str:
+    return str(branch_name or '').strip().lower()
+
+
+def _resolve_selector_branch_price(item: dict[str, Any], preferred_branch: str = '') -> dict[str, Any]:
+    default_unit_price = round(float(item.get('default_unit_price') or 0.0), 2)
+    overlays = item.get('branch_price_overlays', {}) if isinstance(item.get('branch_price_overlays'), dict) else {}
+    preferred = str(preferred_branch or '').strip()
+    if preferred:
+        for branch_name, raw_price in overlays.items():
+            if _normalize_branch_name(branch_name) == _normalize_branch_name(preferred):
+                try:
+                    price = round(float(raw_price or 0.0), 2)
+                except (TypeError, ValueError):
+                    price = default_unit_price
+                return {
+                    'effective_unit_price': price,
+                    'default_unit_price': default_unit_price,
+                    'price_source': f'branch_overlay:{branch_name}',
+                    'branch_name': str(branch_name),
+                    'preferred_branch': preferred,
+                    'branch_price_overlays': {str(k): round(float(v or 0.0), 2) for k, v in overlays.items()},
+                }
+    return {
+        'effective_unit_price': default_unit_price,
+        'default_unit_price': default_unit_price,
+        'price_source': 'default_catalog',
+        'branch_name': '',
+        'preferred_branch': preferred,
+        'branch_price_overlays': {str(k): round(float(v or 0.0), 2) for k, v in overlays.items()},
+    }
+
+
+def score_equipment_selector_candidates(
+    session: Session,
+    *,
+    package_kind: str,
+    compatibility_context: dict[str, Any] | None = None,
+    preferred_branch: str = '',
+    limit: int = 10,
+) -> dict[str, Any]:
+    family = _resolve_equipment_selector_family(package_kind)
+    normalized_kind = _normalize_template_package_kind(package_kind)
+    items = [item for item in family.get('items', []) if isinstance(item, dict)]
+    context = _normalize_equipment_selector_context(normalized_kind, compatibility_context)
+    config = ensure_heater_quote_settings(session)
+    scoring = config.get('selector_scoring', {}) if isinstance(config.get('selector_scoring'), dict) else {}
+    compatibility_base = float(scoring.get('compatibility_base') or 100.0)
+    issue_penalty = float(scoring.get('issue_penalty') or 30.0)
+    warning_penalty = float(scoring.get('warning_penalty') or 6.0)
+    price_weight = float(scoring.get('price_weight') or 18.0)
+    branch_bonus_value = float(scoring.get('branch_bonus') or 8.0)
+    branch_miss_penalty = float(scoring.get('branch_miss_penalty') or 4.0)
+
+    raw_candidates: list[dict[str, Any]] = []
+    prices: list[float] = []
+    for item in items:
+        compatibility = evaluate_equipment_selector_compatibility(normalized_kind, str(item.get('item_slug') or ''), context)
+        price_info = _resolve_selector_branch_price(item, preferred_branch)
+        effective_price = float(price_info.get('effective_unit_price') or 0.0)
+        if effective_price > 0:
+            prices.append(effective_price)
+        raw_candidates.append({
+            'item': item,
+            'compatibility': compatibility,
+            'price_info': price_info,
+            'effective_unit_price': effective_price,
+        })
+
+    if prices:
+        min_price = min(prices)
+        max_price = max(prices)
+    else:
+        min_price = 0.0
+        max_price = 0.0
+
+    candidates: list[dict[str, Any]] = []
+    for entry in raw_candidates:
+        item = entry['item']
+        compatibility = entry['compatibility']
+        price_info = entry['price_info']
+        compatible = bool(compatibility.get('compatible'))
+        issue_count = len(compatibility.get('issues', []))
+        warning_count = len(compatibility.get('warnings', []))
+        compatibility_score = max(0.0, compatibility_base - issue_penalty * issue_count - warning_penalty * warning_count)
+        if prices and max_price > min_price:
+            price_score = round(((max_price - entry['effective_unit_price']) / (max_price - min_price)) * price_weight, 2)
+        elif prices:
+            price_score = round(price_weight / 2.0, 2)
+        else:
+            price_score = 0.0
+        if preferred_branch:
+            if str(price_info.get('price_source') or '').startswith('branch_overlay:'):
+                branch_score = branch_bonus_value
+            else:
+                branch_score = -branch_miss_penalty
+        else:
+            branch_score = 0.0
+        total_score = round(compatibility_score + price_score + branch_score, 2)
+        selector_item = {
+            'item_slug': str(item.get('item_slug') or ''),
+            'label': str(item.get('label') or ''),
+            'equipment_name': str(item.get('equipment_name') or item.get('label') or ''),
+            'default_unit_price': float(item.get('default_unit_price') or 0.0),
+            'effective_unit_price': float(price_info.get('effective_unit_price') or 0.0),
+            'price_source': str(price_info.get('price_source') or 'default_catalog'),
+            'branch_name': str(price_info.get('branch_name') or ''),
+            'preferred_branch': str(price_info.get('preferred_branch') or ''),
+            'branch_price_overlays': price_info.get('branch_price_overlays', {}),
+            'builder_profile': str(item.get('builder_profile') or ''),
+        }
+        candidates.append({
+            'selector_item': selector_item,
+            'compatible': compatible,
+            'issues': compatibility.get('issues', []),
+            'warnings': compatibility.get('warnings', []),
+            'normalized_context': compatibility.get('normalized_context', {}),
+            'score': total_score,
+            'score_breakdown': {
+                'compatibility_score': round(compatibility_score, 2),
+                'price_score': round(price_score, 2),
+                'branch_score': round(branch_score, 2),
+            },
+            'recommendation_reason': (
+                'Compatible and best scored for the selected context.' if compatible else 'Lower-ranked because of compatibility issues.'
+            ),
+        })
+
+    candidates.sort(
+        key=lambda item: (
+            0 if item['compatible'] else 1,
+            -float(item.get('score') or 0.0),
+            float(item.get('selector_item', {}).get('effective_unit_price') or 0.0),
+            str(item.get('selector_item', {}).get('label') or ''),
+        )
+    )
+    for idx, candidate in enumerate(candidates, start=1):
+        candidate['rank_order'] = idx
+        candidate['recommended'] = idx == 1
+        candidate['recommendation_band'] = 'recommended' if idx == 1 and candidate['compatible'] else ('review' if candidate['compatible'] else 'incompatible')
+    limited = candidates[: max(1, int(limit or 10))]
+    return {
+        'package_kind': normalized_kind,
+        'family_label': str(family.get('label') or normalized_kind.replace('_', ' ').title()),
+        'preferred_branch': str(preferred_branch or ''),
+        'normalized_context': context,
+        'candidate_count': len(candidates),
+        'compatible_count': sum(1 for item in candidates if item['compatible']),
+        'recommended_item_slug': limited[0]['selector_item']['item_slug'] if limited else '',
+        'candidates': limited,
+    }
+
+
 def build_equipment_package_template_from_selector_preview(
     session: Session,
     *,
@@ -714,16 +885,28 @@ def build_equipment_package_template_from_selector_preview(
     template_description: str = '',
     labor_profile: str | None = None,
     compatibility_context: dict[str, Any] | None = None,
+    preferred_branch: str = '',
     misc_materials_amount: float = 0.0,
 ) -> dict[str, Any]:
     family, item, normalized_kind = _resolve_equipment_selector_item(package_kind, item_slug)
-    compatibility = evaluate_equipment_selector_compatibility(normalized_kind, item_slug, compatibility_context)
+    rankings = score_equipment_selector_candidates(
+        session,
+        package_kind=normalized_kind,
+        compatibility_context=compatibility_context,
+        preferred_branch=preferred_branch,
+        limit=10,
+    )
+    selected_ranking = next((entry for entry in rankings.get('candidates', []) if entry.get('selector_item', {}).get('item_slug') == str(item.get('item_slug') or '')), None)
+    compatibility = selected_ranking.get('normalized_context') if isinstance(selected_ranking, dict) else None
+    compatibility_result = evaluate_equipment_selector_compatibility(normalized_kind, item_slug, compatibility_context)
+    selector_item = selected_ranking.get('selector_item', {}) if isinstance(selected_ranking, dict) else _resolve_selector_branch_price(item, preferred_branch)
+    effective_unit_price = float(selector_item.get('effective_unit_price') or item.get('default_unit_price') or 0)
     preview = build_equipment_package_template_from_builder_preview(
         session,
         package_kind=normalized_kind,
         builder_profile=str(item.get('builder_profile') or ''),
         equipment_name=str(item.get('equipment_name') or item.get('label') or 'Equipment').strip(),
-        equipment_unit_price=float(item.get('default_unit_price') or 0),
+        equipment_unit_price=effective_unit_price,
         quantity=quantity,
         saved_by=saved_by,
         template_description=(template_description or str(item.get('label') or '')).strip(),
@@ -736,8 +919,20 @@ def build_equipment_package_template_from_selector_preview(
         'label': str(item.get('label') or ''),
         'equipment_name': str(item.get('equipment_name') or ''),
         'default_unit_price': float(item.get('default_unit_price') or 0),
+        'effective_unit_price': effective_unit_price,
+        'price_source': str(selector_item.get('price_source') or 'default_catalog'),
+        'branch_name': str(selector_item.get('branch_name') or ''),
+        'preferred_branch': str(selector_item.get('preferred_branch') or preferred_branch or ''),
+        'builder_profile': str(item.get('builder_profile') or ''),
     }
-    preview['compatibility'] = compatibility
+    preview['selector_scoring'] = {
+        'score': float(selected_ranking.get('score') or 0) if isinstance(selected_ranking, dict) else 0.0,
+        'score_breakdown': selected_ranking.get('score_breakdown', {}) if isinstance(selected_ranking, dict) else {},
+        'recommendation_rank': int(selected_ranking.get('rank_order') or 0) if isinstance(selected_ranking, dict) else 0,
+        'recommended': bool(selected_ranking.get('recommended')) if isinstance(selected_ranking, dict) else False,
+    }
+    preview['selector_recommendations'] = rankings
+    preview['compatibility'] = compatibility_result
     preview['suggested_template_name'] = template_name or f"{str(item.get('label') or family.get('label') or normalized_kind.title()).strip()} template"
     return preview
 
@@ -753,6 +948,7 @@ def create_equipment_package_template_from_selector(
     template_description: str = '',
     labor_profile: str | None = None,
     compatibility_context: dict[str, Any] | None = None,
+    preferred_branch: str = '',
     misc_materials_amount: float = 0.0,
 ) -> dict[str, Any]:
     preview = build_equipment_package_template_from_selector_preview(
@@ -765,6 +961,7 @@ def create_equipment_package_template_from_selector(
         template_description=template_description,
         labor_profile=labor_profile,
         compatibility_context=compatibility_context,
+        preferred_branch=preferred_branch,
         misc_materials_amount=misc_materials_amount,
     )
     compatibility = preview.get('compatibility', {}) if isinstance(preview.get('compatibility'), dict) else {}
@@ -791,6 +988,8 @@ def create_equipment_package_template_from_selector(
         'template_description': template_description,
         'selector_item': selector_item,
         'compatibility_context': compatibility.get('normalized_context', {}),
+        'selector_scoring': preview.get('selector_scoring', {}),
+        'selector_preferred_branch': str(preview.get('selector_item', {}).get('preferred_branch') or preferred_branch or ''),
         'builder_profile': preview.get('builder_profile', ''),
         'builder_profile_label': preview.get('builder_profile_label', ''),
     }
@@ -1125,74 +1324,33 @@ def _attached_package_kind_from_payload(link: QuoteCaseExternalLink, payload: di
     return _normalize_template_package_kind(str(kind or 'equipment'))
 
 
-
-
 def _normalize_selector_item(selector_item: object, payload: dict[str, Any]) -> dict[str, Any]:
     item = dict(selector_item) if isinstance(selector_item, dict) else {}
+    if item.get('item_slug'):
+        return item
     payload_dict = payload if isinstance(payload, dict) else {}
-
-    nested_sources: list[dict[str, Any]] = []
-    for source in (item, payload_dict):
-        if not isinstance(source, dict):
-            continue
-        for key in (
-            'selected_item',
-            'catalog_item',
-            'item',
-            'selector_catalog_item',
-            'selector_item',
-            'selected_catalog_item',
-            'catalog_selection',
-            'selection',
-        ):
-            value = source.get(key)
-            if isinstance(value, dict):
-                nested_sources.append(value)
-
-    sources: list[dict[str, Any]] = [item, *nested_sources, payload_dict]
-
-    def _pick(*keys: str) -> Any:
+    nested = [value for value in (payload_dict.get('selector_item'), payload_dict.get('candidate'), payload_dict.get('source_payload')) if isinstance(value, dict)]
+    sources = [item, *nested, payload_dict]
+    for source in sources:
+        for key in ('item_slug', 'slug', 'catalog_slug', 'selected_item_slug', 'selector_item_slug'):
+            value = source.get(key) if isinstance(source, dict) else None
+            if value not in (None, ''):
+                item['item_slug'] = str(value)
+                break
+        if item.get('item_slug'):
+            break
+    if not item.get('display_name'):
         for source in sources:
-            if not isinstance(source, dict):
-                continue
-            for key in keys:
-                value = source.get(key)
-                if value not in (None, ''):
-                    return value
-        return ''
+            if isinstance(source, dict):
+                for key in ('display_name', 'label', 'name', 'title', 'model_name'):
+                    value = source.get(key)
+                    if value not in (None, ''):
+                        item['display_name'] = str(value)
+                        break
+                if item.get('display_name'):
+                    break
+    return item
 
-    normalized = {}
-    normalized.update(next((src for src in nested_sources if isinstance(src, dict)), {}))
-    normalized.update(item)
-
-    item_slug = _pick(
-        'item_slug',
-        'slug',
-        'catalog_slug',
-        'selected_slug',
-        'selected_item_slug',
-        'selector_item_slug',
-    )
-    if item_slug:
-        normalized['item_slug'] = str(item_slug)
-
-    display_name = _pick('display_name', 'name', 'title', 'model_name')
-    if display_name and not normalized.get('display_name'):
-        normalized['display_name'] = str(display_name)
-
-    manufacturer = _pick('manufacturer', 'brand_name', 'brand')
-    if manufacturer and not normalized.get('manufacturer'):
-        normalized['manufacturer'] = str(manufacturer)
-
-    model_name = _pick('model_name', 'model', 'title', 'name')
-    if model_name and not normalized.get('model_name'):
-        normalized['model_name'] = str(model_name)
-
-    sku = _pick('sku', 'vendor_sku')
-    if sku and not normalized.get('sku'):
-        normalized['sku'] = str(sku)
-
-    return normalized
 
 def _serialize_attached_equipment_package_link(link: QuoteCaseExternalLink) -> dict[str, Any]:
     payload = _safe_load(link.payload_json)
@@ -1236,7 +1394,7 @@ def _serialize_attached_equipment_package_link(link: QuoteCaseExternalLink) -> d
         'original_prepared_lines': normalized_original_lines,
         'has_overrides': has_overrides,
         'selector_item': _normalize_selector_item(payload.get('selector_item'), payload),
-        'compatibility': payload.get('compatibility') if isinstance(payload.get('compatibility'), dict) else {},
+        'compatibility': payload.get('compatibility_context') if isinstance(payload.get('compatibility_context'), dict) else {},
         'attached_by': payload.get('attached_by', ''),
     }
 
@@ -1687,6 +1845,8 @@ def apply_equipment_package_template_to_quote_case(
             'original_package_summary': {**package_summary, 'edited': False},
             'selector_item': template.get('selector_item') if isinstance(template.get('selector_item'), dict) else {},
             'compatibility_context': template.get('compatibility_context') if isinstance(template.get('compatibility_context'), dict) else {},
+            'selector_scoring': template.get('selector_scoring') if isinstance(template.get('selector_scoring'), dict) else {},
+            'selector_preferred_branch': str(template.get('selector_preferred_branch') or ''),
             'source_payload': {'template_slug': template_slug, 'package_kind': package_kind},
         },
     )
@@ -1706,6 +1866,7 @@ def _merge_heater_quote_config(config: dict[str, Any] | None) -> dict[str, Any]:
         merged['defaults'].update(config.get('defaults') or {})
         merged['sizing'].update(config.get('sizing') or {})
         merged['heritage'].update(config.get('heritage') or {})
+        merged['selector_scoring'].update(config.get('selector_scoring') or {})
         for key, value in (config.get('package_profiles') or {}).items():
             if isinstance(value, dict):
                 base_profile = merged['package_profiles'].get(key, {}) if isinstance(merged.get('package_profiles', {}).get(key), dict) else {}
@@ -1719,6 +1880,7 @@ def _merge_heater_quote_config(config: dict[str, Any] | None) -> dict[str, Any]:
         merged['heritage']['fallback_catalog'] = DEFAULT_HEATER_QUOTE_CONFIG['heritage']['fallback_catalog']
     merged.setdefault('package_profiles', DEFAULT_HEATER_QUOTE_CONFIG['package_profiles'])
     merged.setdefault('labor_profiles', DEFAULT_HEATER_QUOTE_CONFIG['labor_profiles'])
+    merged.setdefault('selector_scoring', DEFAULT_HEATER_QUOTE_CONFIG['selector_scoring'])
     merged['version'] = DEFAULT_HEATER_QUOTE_CONFIG['version']
     return merged
 
