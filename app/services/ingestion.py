@@ -57,6 +57,25 @@ def begin_connector_run(session: Session, source_slug: str, run_type: str = 'web
 def record_raw_payload(session: Session, run: ConnectorRun, source_slug: str, payload: dict[str, Any], record_type: str, external_id: str = '') -> RawSourceRecord:
     payload_json = dumps(payload)
     payload_hash = hashlib.sha256(payload_json.encode('utf-8')).hexdigest()
+    existing = None
+    if external_id:
+        existing = session.exec(
+            select(RawSourceRecord).where(
+                RawSourceRecord.source_slug == source_slug,
+                RawSourceRecord.record_type == record_type,
+                RawSourceRecord.external_id == external_id,
+            )
+        ).first()
+    if not existing:
+        existing = session.exec(
+            select(RawSourceRecord).where(
+                RawSourceRecord.source_slug == source_slug,
+                RawSourceRecord.payload_hash == payload_hash,
+            )
+        ).first()
+    if existing:
+        return existing
+
     raw = RawSourceRecord(
         source_slug=source_slug,
         connector_run_id=run.id,
@@ -75,6 +94,15 @@ def record_raw_payload(session: Session, run: ConnectorRun, source_slug: str, pa
 
 def record_normalized_payload(session: Session, raw: RawSourceRecord, source_slug: str, entity_type: str, normalized_payload: dict[str, Any]) -> NormalizedSourceRecord:
     fingerprint = hashlib.sha256(dumps(normalized_payload).encode('utf-8')).hexdigest()
+    existing = session.exec(
+        select(NormalizedSourceRecord).where(
+            NormalizedSourceRecord.source_slug == source_slug,
+            NormalizedSourceRecord.fingerprint == fingerprint,
+        )
+    ).first()
+    if existing:
+        return existing
+
     normalized = NormalizedSourceRecord(
         raw_record_id=raw.id,
         source_slug=source_slug,
@@ -96,6 +124,14 @@ def materialize_ringcentral_event(session: Session, normalized: NormalizedSource
     result: dict[str, Any] = {'event_kind': event_kind, 'normalized_record_id': normalized.id}
     occurred_at = normalize_occurrence_timestamp(normalized_payload.get('occurred_at'))
     if event_kind in {'call', 'voicemail'}:
+        existing_event = session.exec(
+            select(CommunicationEvent).where(CommunicationEvent.normalized_record_id == normalized.id)
+        ).first()
+        if existing_event:
+            result['communication_event_id'] = existing_event.id
+            result['deduped'] = True
+            return result
+
         event = CommunicationEvent(
             normalized_record_id=normalized.id,
             source_slug='ringcentral',
@@ -139,6 +175,17 @@ def materialize_ringcentral_event(session: Session, normalized: NormalizedSource
         return result
 
     if event_kind == 'sms':
+        message_external_id = normalized_payload.get('message_external_id', '')
+        if message_external_id:
+            existing_msg = session.exec(
+                select(SMSMessage).where(SMSMessage.message_external_id == message_external_id)
+            ).first()
+            if existing_msg:
+                result['sms_thread_id'] = existing_msg.sms_thread_id
+                result['sms_message_id'] = existing_msg.id
+                result['deduped'] = True
+                return result
+
         local_day = occurred_at.date()
         thread = session.exec(
             select(SMSThread).where(
