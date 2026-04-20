@@ -6,37 +6,124 @@
   <style>
     body { font-family: Arial, sans-serif; margin: 24px; background: #f6f8fb; color: #0f172a; }
     h1 { margin-bottom: 8px; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 18px 0; }
+    .grid { display: grid; grid-template-columns: minmax(360px, 0.9fr) minmax(420px, 1.1fr); gap: 20px; }
     .card { background: white; border-radius: 14px; padding: 16px; box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08); }
-    button { padding: 10px 14px; border: 0; border-radius: 10px; cursor: pointer; }
-    pre { white-space: pre-wrap; font-size: 12px; max-height: 480px; overflow: auto; }
-    .muted { color: #475569; }
+    button, select, input { padding: 9px 12px; border-radius: 10px; border: 1px solid #cbd5e1; }
+    button { cursor: pointer; background: #0f172a; color: white; border: 0; }
+    .thread { border-bottom: 1px solid #e2e8f0; padding: 12px 0; cursor: pointer; }
+    .thread:hover { background: #f8fafc; }
+    .thread-title { font-weight: 700; }
+    .muted { color: #64748b; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #e2e8f0; font-size: 12px; }
+    pre { white-space: pre-wrap; font-size: 12px; max-height: 560px; overflow: auto; }
+    .message { border-left: 3px solid #cbd5e1; margin: 10px 0; padding: 8px 10px; background: #f8fafc; border-radius: 8px; }
   </style>
 </head>
 <body>
   <h1>Unified Pool Service Operations Core</h1>
-  <p class="muted">Connector-first foundation built from the uploaded platform and bridge files.</p>
-  <p>
-    <button onclick="loadQueue()">Refresh front desk queue</button>
-  </p>
+  <p class="muted">Bridge-origin SMS review view. Data flows through RingCentral raw → normalized → platform SMS threads.</p>
+
+  <div class="toolbar">
+    <button onclick="loadAll()">Refresh</button>
+    <select id="status" onchange="loadThreads()">
+      <option value="">All statuses</option>
+      <option value="pending_review">pending_review</option>
+      <option value="approved">approved</option>
+    </select>
+    <input id="localDay" placeholder="YYYY-MM-DD" onchange="loadThreads()" />
+    <input id="phone" placeholder="External phone" onchange="loadThreads()" />
+    <button onclick="compareBridge()">Compare active bridge batches</button>
+  </div>
+
   <div class="grid">
     <div class="card">
-      <h2>Communications</h2>
-      <pre id="communications">Loading...</pre>
+      <h2>Review Summary</h2>
+      <pre id="summary">Loading...</pre>
+      <h2>SMS Threads</h2>
+      <div id="threads">Loading...</div>
     </div>
     <div class="card">
-      <h2>SMS Threads</h2>
-      <pre id="threads">Loading...</pre>
+      <h2>Selected Thread</h2>
+      <div id="detail" class="muted">Select a thread.</div>
+      <h2>Bridge Compare</h2>
+      <pre id="compare">Not run yet.</pre>
     </div>
   </div>
+
   <script>
-    async function loadQueue() {
-      const res = await fetch('/front-desk/queue');
-      const data = await res.json();
-      document.getElementById('communications').textContent = JSON.stringify(data.communications, null, 2);
-      document.getElementById('threads').textContent = JSON.stringify(data.sms_threads, null, 2);
+    async function asJson(url) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+      return await res.json();
     }
-    loadQueue();
+
+    function esc(value) {
+      return String(value || '').replace(/[&<>]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch]));
+    }
+
+    async function loadSummary() {
+      const data = await asJson('/front-desk/bridge-review-summary');
+      document.getElementById('summary').textContent = JSON.stringify(data, null, 2);
+    }
+
+    async function loadThreads() {
+      const params = new URLSearchParams();
+      const status = document.getElementById('status').value;
+      const localDay = document.getElementById('localDay').value;
+      const phone = document.getElementById('phone').value;
+      if (status) params.set('status', status);
+      if (localDay) params.set('local_day', localDay);
+      if (phone) params.set('external_phone', phone);
+      params.set('limit', '75');
+      const data = await asJson(`/front-desk/sms-threads?${params.toString()}`);
+      const container = document.getElementById('threads');
+      container.innerHTML = '';
+      for (const thread of data.threads || []) {
+        const div = document.createElement('div');
+        div.className = 'thread';
+        div.onclick = () => loadDetail(thread.id);
+        div.innerHTML = `
+          <div class="thread-title">${esc(thread.external_phone)} <span class="pill">${esc(thread.status)}</span></div>
+          <div class="muted">${esc(thread.local_day)} · ${esc(thread.latest_message_at)} · ${thread.message_count || 0} msg</div>
+          <div>${esc(thread.display_summary || thread.summary || '').slice(0, 220)}</div>`;
+        container.appendChild(div);
+      }
+      if (!container.innerHTML) container.textContent = 'No threads found.';
+    }
+
+    async function loadDetail(id) {
+      const thread = await asJson(`/front-desk/sms-threads/${id}`);
+      const messages = (thread.messages || []).map(m => `
+        <div class="message">
+          <div><strong>${esc(m.direction)}</strong> · ${esc(m.occurred_at)} · ${esc(m.from_phone)} → ${esc(m.to_phone)}</div>
+          <div>${esc(m.display_body || m.body)}</div>
+        </div>`).join('');
+      document.getElementById('detail').innerHTML = `
+        <div><strong>${esc(thread.external_phone)}</strong> <span class="pill">${esc(thread.status)}</span></div>
+        <div class="muted">Internal: ${esc(thread.internal_phone)} · Day: ${esc(thread.local_day)}</div>
+        <h3>Transcript</h3>
+        <pre>${esc(thread.display_transcript || thread.transcript)}</pre>
+        <h3>Messages</h3>
+        ${messages || '<p class="muted">No messages.</p>'}
+        <h3>Provenance</h3>
+        <pre>${esc(JSON.stringify(thread.provenance, null, 2))}</pre>`;
+    }
+
+    async function compareBridge() {
+      try {
+        const data = await asJson('/front-desk/bridge-compare/sms-batches?limit=500');
+        document.getElementById('compare').textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        document.getElementById('compare').textContent = String(err);
+      }
+    }
+
+    async function loadAll() {
+      await loadSummary();
+      await loadThreads();
+    }
+    loadAll();
   </script>
 </body>
 </html>

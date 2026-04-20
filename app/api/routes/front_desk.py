@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import os
 from datetime import date
+from typing import Any
 
+import requests
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session
@@ -10,10 +13,14 @@ from app.core.database import engine
 from app.services.front_desk import (
     approve_communication,
     approve_sms_thread,
+    bridge_review_summary,
     build_candidates_for_communication,
     build_candidates_for_sms_thread,
+    compare_bridge_sms_batches,
     create_follow_up_task,
+    get_sms_thread_detail,
     list_queue,
+    list_sms_threads,
     save_routing_preference,
 )
 
@@ -44,6 +51,58 @@ class TaskBody(BaseModel):
 def queue():
     with Session(engine) as session:
         return list_queue(session)
+
+
+@router.get('/sms-threads')
+def sms_threads(status: str = '', external_phone: str = '', local_day: str = '', source: str = '', limit: int = 50, offset: int = 0):
+    with Session(engine) as session:
+        return list_sms_threads(
+            session,
+            status=status,
+            external_phone=external_phone,
+            local_day=local_day,
+            source=source,
+            limit=limit,
+            offset=offset,
+        )
+
+
+@router.get('/sms-threads/{sms_thread_id}')
+def sms_thread_detail(sms_thread_id: int):
+    with Session(engine) as session:
+        try:
+            return get_sms_thread_detail(session, sms_thread_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get('/bridge-review-summary')
+def bridge_review_queue_summary():
+    with Session(engine) as session:
+        return bridge_review_summary(session)
+
+
+@router.get('/bridge-compare/sms-batches')
+def bridge_compare_sms_batches(bridge_api_base_url: str = '', limit: int = 250):
+    base_url = (bridge_api_base_url or os.getenv('BRIDGE_API_BASE_URL') or 'http://127.0.0.1:8000').rstrip('/')
+    headers: dict[str, str] = {}
+    token = os.getenv('BRIDGE_CONTROL_TOKEN', '').strip()
+    if token:
+        headers['X-Bridge-Admin-Token'] = token
+    try:
+        response = requests.get(f'{base_url}/api/sms/batches', params={'view': 'active'}, headers=headers, timeout=8)
+        response.raise_for_status()
+        payload: Any = response.json()
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail=f'Could not reach bridge API at {base_url}: {exc}') from exc
+    batches = payload.get('batches', payload) if isinstance(payload, dict) else payload
+    if not isinstance(batches, list):
+        batches = []
+    batches = batches[: max(1, min(int(limit or 250), 1000))]
+    with Session(engine) as session:
+        result = compare_bridge_sms_batches(session, batches)
+    result['bridge_api_base_url'] = base_url
+    return result
 
 
 @router.post('/communications/{communication_event_id}/candidates')
