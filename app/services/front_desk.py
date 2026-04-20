@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+import hashlib
+import os
 from typing import Any
 
 from sqlmodel import Session, desc, select
 
+from app.connectors.lacrm.client import LACRMAPIError, get_lacrm_client
 from app.models.communication_tables import (
     CRMApplyAction,
     CommunicationEvent,
@@ -385,6 +388,514 @@ def review_action_summary(session: Session) -> dict[str, Any]:
         'latest_tasks': [_task_link_payload(row) for row in tasks[:10]],
         'latest_routing_preferences': [_routing_preference_payload(row) for row in routing[:10]],
     }
+
+
+def _truthy_env(name: str) -> bool:
+    return (os.getenv(name, '') or '').strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def _extract_lacrm_contact_id(chosen_contact_ref: str = '', contact_id: str = '') -> str:
+    explicit = (contact_id or '').strip()
+    if explicit:
+        return explicit
+    ref = (chosen_contact_ref or '').strip()
+    for prefix in ('lacrm_contact:', 'lacrm:', 'contact:'):
+        if ref.startswith(prefix):
+            return ref.split(':', 1)[1].strip()
+    return ''
+
+
+def _thread_apply_note(thread: SMSThread, messages: list[SMSMessage], *, operator_note: str = '') -> str:
+    lines = [
+        'KPS Bridge SMS review',
+        f'Phone: {thread.external_phone}',
+        f'Day: {thread.local_day.isoformat() if thread.local_day else ""}',
+        f'Status: {thread.status}',
+        '',
+        'Summary:',
+        clean_display_text(thread.summary or thread.transcript or ''),
+    ]
+    if operator_note:
+        lines.extend(['', 'Operator note:', operator_note.strip()])
+    if messages:
+        lines.extend(['', 'Recent messages:'])
+        for msg in messages[-8:]:
+            ts = msg.occurred_at.isoformat() if msg.occurred_at else ''
+            lines.append(f'- [{ts}] {msg.direction}: {clean_display_text(msg.body)}')
+    return '\n'.join(lines).strip()
+
+
+def build_sms_thread_lacrm_apply_plan(
+    session: Session,
+    sms_thread_id: int,
+    *,
+    chosen_contact_ref: str = '',
+    contact_id: str = '',
+    include_note: bool = True,
+    include_task: bool = False,
+    task_title: str = '',
+    task_due_date: date | None = None,
+    operator_note: str = '',
+    idempotency_key: str = '',
+) -> dict[str, Any]:
+    """Build a guarded LACRM apply plan without writing to LACRM."""
+    thread = session.get(SMSThread, sms_thread_id)
+    if not thread:
+        raise ValueError('SMS thread not found')
+    resolved_contact_id = _extract_lacrm_contact_id(chosen_contact_ref, contact_id)
+    if not resolved_contact_id:
+        raise ValueError('LACRM contact_id is required. Use contact_id or chosen_contact_ref like lacrm_contact:12345.')
+    messages = list(session.exec(
+        select(SMSMessage)
+        .where(SMSMessage.sms_thread_id == sms_thread_id)
+        .order_by(SMSMessage.occurred_at, SMSMessage.id)
+    ).all())
+    note_body = _thread_apply_note(thread, messages, operator_note=operator_note)
+    base_key = idempotency_key or hashlib.sha256(
+        f'sms_thread:{sms_thread_id}|lacrm_contact:{resolved_contact_id}|{note_body}|{task_title}|{task_due_date}'.encode('utf-8')
+    ).hexdigest()
+    operations: list[dict[str, Any]] = []
+    if include_note:
+        operations.append({
+            'operation': 'create_note',
+            'idempotency_key': f'{base_key}:note',
+            'target_contact_ref': f'lacrm_contact:{resolved_contact_id}',
+            'parameters': {'ContactId': resolved_contact_id, 'Note': note_body},
+        })
+    if include_task:
+        title = (task_title or '').strip() or f'Follow up SMS from {thread.external_phone}'
+        operations.append({
+            'operation': 'create_task',
+            'idempotency_key': f'{base_key}:task',
+            'target_contact_ref': f'lacrm_contact:{resolved_contact_id}',
+            'parameters': {
+                'Name': title,
+                'Description': note_body,
+                'ContactId': resolved_contact_id,
+                'DueDate': task_due_date.isoformat() if task_due_date else None,
+            },
+        })
+    if not operations:
+        raise ValueError('At least one LACRM apply operation is required.')
+    return {
+        'sms_thread_id': sms_thread_id,
+        'chosen_contact_ref': chosen_contact_ref or f'lacrm_contact:{resolved_contact_id}',
+        'contact_id': resolved_contact_id,
+        'dry_run_default': True,
+        'live_write_enabled': _truthy_env('PLATFORM_LACRM_LIVE_WRITE_ENABLED'),
+        'operation_count': len(operations),
+        'operations': operations,
+    }
+
+
+def _existing_apply_action(session: Session, idempotency_key: str, action_type: str, target_contact_ref: str) -> CRMApplyAction | None:
+    rows = list(session.exec(
+        select(CRMApplyAction)
+        .where(CRMApplyAction.action_type == action_type)
+        .where(CRMApplyAction.target_contact_ref == target_contact_ref)
+        .order_by(desc(CRMApplyAction.created_at))
+    ).all())
+    needle = f'"idempotency_key":"{idempotency_key}"'
+    needle_spaced = f'"idempotency_key": "{idempotency_key}"'
+    for row in rows:
+        if needle in row.payload_json or needle_spaced in row.payload_json:
+            return row
+    return None
+
+
+def apply_sms_thread_to_lacrm(
+    session: Session,
+    sms_thread_id: int,
+    *,
+    chosen_contact_ref: str = '',
+    contact_id: str = '',
+    include_note: bool = True,
+    include_task: bool = False,
+    task_title: str = '',
+    task_due_date: date | None = None,
+    operator_note: str = '',
+    decided_by: str = 'operator',
+    dry_run: bool = True,
+    confirm_live_write: bool = False,
+    idempotency_key: str = '',
+) -> dict[str, Any]:
+    """Queue or execute guarded LACRM actions for an SMS thread.
+
+    Default behavior is dry-run only. Live writes require both
+    PLATFORM_LACRM_LIVE_WRITE_ENABLED=true and confirm_live_write=true.
+    """
+    plan = build_sms_thread_lacrm_apply_plan(
+        session,
+        sms_thread_id,
+        chosen_contact_ref=chosen_contact_ref,
+        contact_id=contact_id,
+        include_note=include_note,
+        include_task=include_task,
+        task_title=task_title,
+        task_due_date=task_due_date,
+        operator_note=operator_note,
+        idempotency_key=idempotency_key,
+    )
+    live_requested = not dry_run
+    live_allowed = bool(live_requested and confirm_live_write and _truthy_env('PLATFORM_LACRM_LIVE_WRITE_ENABLED'))
+    client = get_lacrm_client() if live_allowed else None
+    if live_requested and not live_allowed:
+        live_block_reason = 'Live LACRM write blocked. Require dry_run=false, confirm_live_write=true, and PLATFORM_LACRM_LIVE_WRITE_ENABLED=true.'
+    elif live_allowed and client is None:
+        live_block_reason = 'Live LACRM write blocked because LACRM_API_KEY is not configured.'
+        live_allowed = False
+    else:
+        live_block_reason = ''
+
+    decision = OperatorDecision(
+        sms_thread_id=sms_thread_id,
+        decision='lacrm_apply_live' if live_allowed else 'lacrm_apply_dry_run',
+        chosen_contact_ref=plan['chosen_contact_ref'],
+        notes=operator_note or live_block_reason,
+        decided_by=decided_by or 'operator',
+    )
+    session.add(decision)
+    session.commit()
+    session.refresh(decision)
+
+    results: list[dict[str, Any]] = []
+    for op in plan['operations']:
+        existing = _existing_apply_action(session, op['idempotency_key'], op['operation'], op['target_contact_ref'])
+        if existing:
+            results.append({
+                'operation': op['operation'],
+                'status': existing.status,
+                'deduped': True,
+                'crm_apply_action_id': existing.id,
+                'idempotency_key': op['idempotency_key'],
+            })
+            continue
+        status = 'dry_run'
+        response_payload: dict[str, Any] = {}
+        error = ''
+        if live_requested and not live_allowed:
+            status = 'blocked'
+            error = live_block_reason
+        elif live_allowed and client is not None:
+            try:
+                if op['operation'] == 'create_note':
+                    response = client.call('CreateNote', op['parameters'])
+                    response_payload = dict(response) if isinstance(response, dict) else {'response': response}
+                elif op['operation'] == 'create_task':
+                    params = op['parameters']
+                    response_payload = client.create_task(
+                        name=params.get('Name', ''),
+                        due_date=params.get('DueDate'),
+                        description=params.get('Description', ''),
+                        contact_id=params.get('ContactId'),
+                    )
+                status = 'applied'
+            except (LACRMAPIError, ValueError) as exc:
+                status = 'error'
+                error = str(exc)
+        payload = {
+            'idempotency_key': op['idempotency_key'],
+            'sms_thread_id': sms_thread_id,
+            'operation': op['operation'],
+            'parameters': op['parameters'],
+            'dry_run': dry_run,
+            'confirm_live_write': confirm_live_write,
+            'live_write_enabled': _truthy_env('PLATFORM_LACRM_LIVE_WRITE_ENABLED'),
+            'response': response_payload,
+            'error': error,
+        }
+        action = CRMApplyAction(
+            operator_decision_id=decision.id,
+            action_type=op['operation'],
+            target_contact_ref=op['target_contact_ref'],
+            payload_json=dumps(payload),
+            status=status,
+        )
+        session.add(action)
+        session.commit()
+        session.refresh(action)
+        results.append({
+            'operation': op['operation'],
+            'status': status,
+            'deduped': False,
+            'crm_apply_action_id': action.id,
+            'idempotency_key': op['idempotency_key'],
+            'error': error,
+        })
+    return {
+        'ok': all(item['status'] in {'dry_run', 'applied'} or item.get('deduped') for item in results),
+        'mode': 'live' if live_allowed else 'dry_run' if dry_run else 'blocked',
+        'sms_thread_id': sms_thread_id,
+        'operator_decision_id': decision.id,
+        'contact_id': plan['contact_id'],
+        'chosen_contact_ref': plan['chosen_contact_ref'],
+        'operation_count': len(results),
+        'results': results,
+        'live_block_reason': live_block_reason,
+    }
+
+
+def lacrm_apply_status(session: Session) -> dict[str, Any]:
+    actions = list(session.exec(select(CRMApplyAction).order_by(desc(CRMApplyAction.created_at)).limit(25)).all())
+    status_counts: dict[str, int] = {}
+    type_counts: dict[str, int] = {}
+    for action in session.exec(select(CRMApplyAction)).all():
+        status_counts[action.status] = status_counts.get(action.status, 0) + 1
+        type_counts[action.action_type] = type_counts.get(action.action_type, 0) + 1
+    return {
+        'lacrm_api_key_configured': get_lacrm_client() is not None,
+        'live_write_enabled': _truthy_env('PLATFORM_LACRM_LIVE_WRITE_ENABLED'),
+        'default_mode': 'dry_run',
+        'status_counts': status_counts,
+        'action_type_counts': type_counts,
+        'latest_actions': [action.model_dump() | {'payload': _loads_dict(action.payload_json)} for action in actions],
+    }
+
+
+
+def _lacrm_first_value(contact: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = contact.get(key)
+        if value is None:
+            continue
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, (int, float)):
+            return str(value)
+    return ''
+
+
+def _lacrm_contact_id(contact: dict[str, Any]) -> str:
+    return _lacrm_first_value(contact, 'ContactId', 'ContactID', 'contact_id', 'Id', 'ID', 'id')
+
+
+def _lacrm_phone_values(contact: dict[str, Any]) -> list[str]:
+    values: list[str] = []
+    for key in ('Phone', 'PhoneNumber', 'MobilePhone', 'WorkPhone', 'HomePhone', 'CellPhone', 'phone'):
+        value = contact.get(key)
+        if isinstance(value, str) and value.strip():
+            values.append(value.strip())
+    for key in ('Phones', 'PhoneNumbers', 'ContactPhones'):
+        value = contact.get(key)
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, str) and item.strip():
+                    values.append(item.strip())
+                elif isinstance(item, dict):
+                    nested = _lacrm_first_value(item, 'Phone', 'PhoneNumber', 'Number', 'Value', 'value')
+                    if nested:
+                        values.append(nested)
+    seen: set[str] = set()
+    unique: list[str] = []
+    for value in values:
+        if value not in seen:
+            seen.add(value)
+            unique.append(value)
+    return unique
+
+
+def _lacrm_contact_label(contact: dict[str, Any]) -> str:
+    name = _lacrm_first_value(contact, 'Name', 'FullName', 'Full Name', 'ContactName', 'DisplayName', 'display_name')
+    company = _lacrm_first_value(contact, 'CompanyName', 'Company Name', 'Company', 'company')
+    email = _lacrm_first_value(contact, 'Email', 'EmailAddress', 'email')
+    phones = _lacrm_phone_values(contact)
+    parts = [part for part in (name, company, phones[0] if phones else '', email) if part]
+    return ' — '.join(parts) if parts else f'LACRM contact {_lacrm_contact_id(contact)}'
+
+
+def _normalize_lacrm_contact(contact: dict[str, Any]) -> dict[str, Any]:
+    contact_id = _lacrm_contact_id(contact)
+    phones = _lacrm_phone_values(contact)
+    name = _lacrm_first_value(contact, 'Name', 'FullName', 'Full Name', 'ContactName', 'DisplayName', 'display_name')
+    company = _lacrm_first_value(contact, 'CompanyName', 'Company Name', 'Company', 'company')
+    email = _lacrm_first_value(contact, 'Email', 'EmailAddress', 'email')
+    address = _lacrm_first_value(contact, 'Address', 'StreetAddress', 'MailingAddress', 'Background Info', 'BackgroundInfo')
+    return {
+        'contact_id': contact_id,
+        'contact_ref': f'lacrm_contact:{contact_id}' if contact_id else '',
+        'display_label': _lacrm_contact_label(contact),
+        'name': name,
+        'company': company,
+        'email': email,
+        'phones': phones,
+        'address': address,
+        'raw': contact,
+    }
+
+
+def _phone_tail(value: str) -> str:
+    digits = ''.join(ch for ch in (value or '') if ch.isdigit())
+    return digits[-7:]
+
+
+def search_lacrm_contacts(
+    search_terms: str,
+    *,
+    limit: int = 10,
+    sample_contacts: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Search LACRM contacts safely for platform candidate selection.
+
+    Tests and local validation can supply sample_contacts to avoid live API calls.
+    Without LACRM_API_KEY this returns mode=not_configured instead of failing.
+    """
+    limit = max(1, min(int(limit or 10), 50))
+    terms = (search_terms or '').strip()
+    if sample_contacts is not None:
+        rows = [dict(row) for row in sample_contacts if isinstance(row, dict)]
+        contacts = [_normalize_lacrm_contact(row) for row in rows if _lacrm_contact_id(row)]
+        return {
+            'configured': False,
+            'mode': 'sample',
+            'search_terms': terms,
+            'count': len(contacts[:limit]),
+            'contacts': contacts[:limit],
+            'error': '',
+        }
+    client = get_lacrm_client()
+    if client is None:
+        return {
+            'configured': False,
+            'mode': 'not_configured',
+            'search_terms': terms,
+            'count': 0,
+            'contacts': [],
+            'error': 'LACRM_API_KEY is not configured for platform-side contact search.',
+        }
+    try:
+        rows = client.get_contacts(terms, max_results=limit)
+    except (LACRMAPIError, ValueError) as exc:
+        return {
+            'configured': True,
+            'mode': 'error',
+            'search_terms': terms,
+            'count': 0,
+            'contacts': [],
+            'error': str(exc),
+        }
+    contacts = [_normalize_lacrm_contact(row) for row in rows if _lacrm_contact_id(row)]
+    return {
+        'configured': True,
+        'mode': 'live_search',
+        'search_terms': terms,
+        'count': len(contacts[:limit]),
+        'contacts': contacts[:limit],
+        'error': '',
+    }
+
+
+def _thread_lacrm_search_terms(thread: SMSThread) -> list[str]:
+    terms: list[str] = []
+    for value in (thread.external_phone, thread.extracted_names, thread.extracted_address):
+        cleaned = (value or '').strip()
+        if cleaned and cleaned not in terms:
+            terms.append(cleaned)
+    for source in (thread.summary, thread.transcript):
+        cleaned = clean_display_text(source or '').strip()
+        if cleaned:
+            snippet = cleaned.replace('\n', ' ')[:90].strip()
+            if snippet and snippet not in terms:
+                terms.append(snippet)
+            break
+    return terms[:5]
+
+
+def _score_lacrm_contact_for_thread(thread: SMSThread, contact: dict[str, Any]) -> tuple[float, str]:
+    reasons: list[str] = []
+    score = 0.55
+    thread_phone_tail = _phone_tail(thread.external_phone)
+    if thread_phone_tail:
+        for phone in contact.get('phones', []):
+            if _phone_tail(str(phone)) == thread_phone_tail:
+                score = max(score, 0.97)
+                reasons.append('phone_match')
+                break
+    text_hint = ' '.join(filter(None, [thread.extracted_names, thread.extracted_address, thread.summary, thread.transcript]))
+    label = ' '.join(filter(None, [contact.get('display_label', ''), contact.get('name', ''), contact.get('company', ''), contact.get('address', '')]))
+    if text_hint and label:
+        sim = similarity(text_hint[:300], label[:300])
+        if sim >= 0.25:
+            score = max(score, min(0.94, 0.55 + sim / 2))
+            reasons.append(f'text_similarity:{sim:.2f}')
+    if not reasons:
+        reasons.append('lacrm_search_result')
+    return round(score, 4), ','.join(reasons)
+
+
+def build_lacrm_candidates_for_sms_thread(
+    session: Session,
+    sms_thread_id: int,
+    *,
+    search_terms: str = '',
+    limit: int = 8,
+    store: bool = True,
+    sample_contacts: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    thread = session.get(SMSThread, sms_thread_id)
+    if not thread:
+        raise ValueError('SMS thread not found')
+    limit = max(1, min(int(limit or 8), 25))
+    query_terms = [(search_terms or '').strip()] if (search_terms or '').strip() else _thread_lacrm_search_terms(thread)
+    if not query_terms and sample_contacts is None:
+        query_terms = [thread.external_phone]
+    by_ref: dict[str, dict[str, Any]] = {}
+    searches: list[dict[str, Any]] = []
+    sample_consumed = False
+    for term in query_terms:
+        result = search_lacrm_contacts(term, limit=limit, sample_contacts=sample_contacts if not sample_consumed else None)
+        sample_consumed = sample_contacts is not None
+        searches.append({k: v for k, v in result.items() if k != 'contacts'})
+        for contact in result.get('contacts', []):
+            ref = contact.get('contact_ref', '')
+            if ref and ref not in by_ref:
+                by_ref[ref] = contact
+        if len(by_ref) >= limit:
+            break
+    candidates: list[dict[str, Any]] = []
+    for contact in by_ref.values():
+        score, reason = _score_lacrm_contact_for_thread(thread, contact)
+        item = {
+            'ref': contact['contact_ref'],
+            'contact_id': contact['contact_id'],
+            'label': contact['display_label'],
+            'score': score,
+            'reason': reason,
+            'raw': contact['raw'],
+        }
+        candidates.append(item)
+    candidates.sort(key=lambda item: item['score'], reverse=True)
+    candidates = candidates[:limit]
+    if store:
+        for item in candidates:
+            existing = session.exec(
+                select(ContactMatchCandidate).where(
+                    ContactMatchCandidate.sms_thread_id == sms_thread_id,
+                    ContactMatchCandidate.contact_ref == item['ref'],
+                )
+            ).first()
+            if existing:
+                existing.display_label = item['label']
+                existing.score = item['score']
+                existing.reasoning = f"lacrm:{item['reason']}"
+                session.add(existing)
+            else:
+                session.add(ContactMatchCandidate(
+                    sms_thread_id=sms_thread_id,
+                    contact_ref=item['ref'],
+                    display_label=item['label'],
+                    score=item['score'],
+                    reasoning=f"lacrm:{item['reason']}",
+                ))
+        session.commit()
+    return {
+        'sms_thread_id': sms_thread_id,
+        'query_terms': query_terms,
+        'searches': searches,
+        'count': len(candidates),
+        'stored': bool(store),
+        'candidates': candidates,
+    }
+
 
 def list_queue(session: Session) -> dict[str, list[dict[str, Any]]]:
     comms = list(session.exec(select(CommunicationEvent).order_by(desc(CommunicationEvent.occurred_at)).limit(50)).all())

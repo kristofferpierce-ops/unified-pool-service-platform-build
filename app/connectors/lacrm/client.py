@@ -46,6 +46,21 @@ class LACRMClient:
         except URLError as exc:
             raise LACRMAPIError(f'LACRM connection failed: {exc.reason}') from exc
 
+
+    def get_contacts(self, search_terms: str, *, max_results: int | None = None) -> list[dict[str, Any]]:
+        """Search Less Annoying CRM contacts and normalize common response shapes."""
+        params: dict[str, Any] = {'SearchTerms': (search_terms or '').strip()}
+        if max_results:
+            params['MaxNumberOfResults'] = max(1, int(max_results))
+        result = self.call('GetContacts', params)
+        if isinstance(result, dict):
+            rows = result.get('Results', []) or result.get('Contacts', []) or []
+        elif isinstance(result, list):
+            rows = result
+        else:
+            rows = []
+        return [dict(row) for row in rows if isinstance(row, dict)]
+
     def get_user(self) -> dict[str, Any]:
         result = self.call('GetUser')
         return dict(result)
@@ -107,6 +122,9 @@ class LACRMClient:
         if calendar_id:
             parameters['CalendarId'] = calendar_id
         return dict(self.call('CreateTask', parameters))
+
+    def create_note(self, *, contact_id: str, note: str) -> dict[str, Any]:
+        return dict(self.call('CreateNote', {'ContactId': contact_id, 'Note': note}))
 
     def edit_task(self, *, task_id: str, name: str | None = None, due_date: str | None = None, assigned_to: str | None = None, description: str | None = None, contact_id: str | None = None, calendar_id: str | None = None, is_complete: bool | None = None) -> dict[str, Any]:
         parameters: dict[str, Any] = {'TaskId': task_id}

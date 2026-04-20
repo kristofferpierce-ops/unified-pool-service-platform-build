@@ -23,9 +23,14 @@ from app.services.front_desk import (
     list_review_actions,
     list_sms_threads,
     review_action_summary,
+    search_lacrm_contacts,
     save_routing_preference,
     set_sms_thread_review_status,
     add_sms_thread_review_note,
+    apply_sms_thread_to_lacrm,
+    build_sms_thread_lacrm_apply_plan,
+    build_lacrm_candidates_for_sms_thread,
+    lacrm_apply_status,
 )
 
 router = APIRouter(prefix='/front-desk', tags=['front-desk'])
@@ -60,6 +65,27 @@ class ReviewStatusBody(BaseModel):
 class ReviewNoteBody(BaseModel):
     note: str
     decided_by: str = 'operator'
+
+
+class LACRMApplyBody(BaseModel):
+    chosen_contact_ref: str = ''
+    contact_id: str = ''
+    include_note: bool = True
+    include_task: bool = False
+    task_title: str = ''
+    task_due_date: date | None = None
+    operator_note: str = ''
+    decided_by: str = 'operator'
+    dry_run: bool = True
+    confirm_live_write: bool = False
+    idempotency_key: str = ''
+
+
+class LACRMCandidatesBody(BaseModel):
+    search_terms: str = ''
+    limit: int = 8
+    store: bool = True
+    sample_contacts: list[dict[str, Any]] = []
 
 
 @router.get('/queue')
@@ -120,6 +146,76 @@ def sms_thread_review_note(sms_thread_id: int, body: ReviewNoteBody):
         except ValueError as exc:
             raise HTTPException(status_code=400 if 'required' in str(exc) else 404, detail=str(exc)) from exc
 
+
+
+@router.get('/lacrm/search')
+def front_desk_lacrm_search(q: str = '', limit: int = 10):
+    return search_lacrm_contacts(q, limit=limit)
+
+
+@router.post('/sms-threads/{sms_thread_id}/lacrm-candidates')
+def sms_thread_lacrm_candidates(sms_thread_id: int, body: LACRMCandidatesBody):
+    with Session(engine) as session:
+        try:
+            return build_lacrm_candidates_for_sms_thread(
+                session,
+                sms_thread_id,
+                search_terms=body.search_terms,
+                limit=body.limit,
+                store=body.store,
+                sample_contacts=body.sample_contacts or None,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get('/lacrm-apply/status')
+def front_desk_lacrm_apply_status():
+    with Session(engine) as session:
+        return lacrm_apply_status(session)
+
+
+@router.post('/sms-threads/{sms_thread_id}/lacrm-apply-preview')
+def sms_thread_lacrm_apply_preview(sms_thread_id: int, body: LACRMApplyBody):
+    with Session(engine) as session:
+        try:
+            return build_sms_thread_lacrm_apply_plan(
+                session,
+                sms_thread_id,
+                chosen_contact_ref=body.chosen_contact_ref,
+                contact_id=body.contact_id,
+                include_note=body.include_note,
+                include_task=body.include_task,
+                task_title=body.task_title,
+                task_due_date=body.task_due_date,
+                operator_note=body.operator_note,
+                idempotency_key=body.idempotency_key,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400 if 'required' in str(exc) else 404, detail=str(exc)) from exc
+
+
+@router.post('/sms-threads/{sms_thread_id}/lacrm-apply')
+def sms_thread_lacrm_apply(sms_thread_id: int, body: LACRMApplyBody):
+    with Session(engine) as session:
+        try:
+            return apply_sms_thread_to_lacrm(
+                session,
+                sms_thread_id,
+                chosen_contact_ref=body.chosen_contact_ref,
+                contact_id=body.contact_id,
+                include_note=body.include_note,
+                include_task=body.include_task,
+                task_title=body.task_title,
+                task_due_date=body.task_due_date,
+                operator_note=body.operator_note,
+                decided_by=body.decided_by,
+                dry_run=body.dry_run,
+                confirm_live_write=body.confirm_live_write,
+                idempotency_key=body.idempotency_key,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400 if 'required' in str(exc) else 404, detail=str(exc)) from exc
 
 @router.get('/bridge-review-summary')
 def bridge_review_queue_summary():

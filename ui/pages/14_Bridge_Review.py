@@ -20,6 +20,7 @@ from app.services.front_desk import (
     approve_sms_thread,
     bridge_review_summary,
     build_candidates_for_sms_thread,
+    build_lacrm_candidates_for_sms_thread,
     build_sms_thread_lacrm_apply_plan,
     clean_display_text,
     create_follow_up_task,
@@ -172,12 +173,39 @@ with right:
                 st.rerun()
 
         with action_tabs[1]:
+            st.markdown('##### LACRM contact search')
+            st.caption('Search/import LACRM contacts into platform candidates. If LACRM is not configured, this returns a safe not_configured result and does not write to CRM.')
+            default_lacrm_terms = ' '.join([
+                str(detail.get('external_phone') or ''),
+                str(detail.get('extracted_names') or ''),
+                str(detail.get('extracted_address') or ''),
+            ]).strip()
+            lacrm_terms = st.text_input('LACRM search terms', value=default_lacrm_terms, key=f'lacrm_terms_{selected_thread_id}')
+            lacrm_limit = st.number_input('LACRM result limit', min_value=1, max_value=25, value=8, step=1, key=f'lacrm_limit_{selected_thread_id}')
+            lacrm_cols = st.columns(2)
+            with lacrm_cols[0]:
+                if st.button('Search/import LACRM candidates', key=f'lacrm_import_{selected_thread_id}'):
+                    result = _run_db(lambda session: build_lacrm_candidates_for_sms_thread(
+                        session,
+                        selected_thread_id,
+                        search_terms=lacrm_terms,
+                        limit=int(lacrm_limit),
+                        store=True,
+                    ))
+                    if result.get('count', 0):
+                        st.success(f"Imported {result.get('count')} LACRM candidate(s).")
+                    else:
+                        st.info('No LACRM candidates imported. Check search terms or LACRM configuration.')
+                    st.json(result)
+                    st.rerun()
+            with lacrm_cols[1]:
+                if st.button('Build local heuristic candidates', key=f'cands_{selected_thread_id}'):
+                    result = _run_db(lambda session: build_candidates_for_sms_thread(session, selected_thread_id))
+                    st.success('Local candidates built.')
+                    st.json(result)
+                    st.rerun()
+
             st.markdown('##### Candidate matching and platform approval')
-            if st.button('Build/reload candidates', key=f'cands_{selected_thread_id}'):
-                result = _run_db(lambda session: build_candidates_for_sms_thread(session, selected_thread_id))
-                st.success('Candidates built.')
-                st.json(result)
-                st.rerun()
             candidates = detail.get('candidates') or []
             if not candidates:
                 st.info('No candidates loaded yet. Build candidates first, or enter a contact ref manually.')
