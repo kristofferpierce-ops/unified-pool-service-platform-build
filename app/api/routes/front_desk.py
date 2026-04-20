@@ -31,6 +31,10 @@ from app.services.front_desk import (
     build_sms_thread_lacrm_apply_plan,
     build_lacrm_candidates_for_sms_thread,
     lacrm_apply_status,
+    lacrm_apply_readiness,
+    list_crm_apply_actions,
+    get_crm_apply_action_detail,
+    crm_apply_action_export,
 )
 
 router = APIRouter(prefix='/front-desk', tags=['front-desk'])
@@ -173,6 +177,50 @@ def sms_thread_lacrm_candidates(sms_thread_id: int, body: LACRMCandidatesBody):
 def front_desk_lacrm_apply_status():
     with Session(engine) as session:
         return lacrm_apply_status(session)
+
+
+
+
+@router.get('/lacrm-apply/readiness')
+def front_desk_lacrm_apply_readiness():
+    with Session(engine) as session:
+        return lacrm_apply_readiness(session)
+
+
+@router.get('/lacrm-apply/actions')
+def front_desk_lacrm_apply_actions(
+    status: str = '',
+    action_type: str = '',
+    target_contact_ref: str = '',
+    sms_thread_id: int | None = None,
+    limit: int = 50,
+    offset: int = 0,
+):
+    with Session(engine) as session:
+        return list_crm_apply_actions(
+            session,
+            status=status,
+            action_type=action_type,
+            target_contact_ref=target_contact_ref,
+            sms_thread_id=sms_thread_id,
+            limit=limit,
+            offset=offset,
+        )
+
+
+@router.get('/lacrm-apply/actions/{crm_apply_action_id}')
+def front_desk_lacrm_apply_action_detail(crm_apply_action_id: int):
+    with Session(engine) as session:
+        try:
+            return get_crm_apply_action_detail(session, crm_apply_action_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get('/lacrm-apply/export')
+def front_desk_lacrm_apply_export(status: str = '', action_type: str = '', limit: int = 500):
+    with Session(engine) as session:
+        return crm_apply_action_export(session, status=status, action_type=action_type, limit=limit)
 
 
 @router.post('/sms-threads/{sms_thread_id}/lacrm-apply-preview')

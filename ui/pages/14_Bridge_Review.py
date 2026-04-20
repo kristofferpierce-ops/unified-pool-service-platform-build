@@ -26,6 +26,10 @@ from app.services.front_desk import (
     create_follow_up_task,
     get_sms_thread_detail,
     lacrm_apply_status,
+    lacrm_apply_readiness,
+    list_crm_apply_actions,
+    get_crm_apply_action_detail,
+    crm_apply_action_export,
     list_review_actions,
     list_sms_threads,
     review_action_summary,
@@ -71,8 +75,9 @@ st.caption('Platform-side review of bridge-origin SMS threads. The original brid
 summary = _run_db(bridge_review_summary)
 review_summary = _run_db(review_action_summary)
 lacrm_status = _run_db(lacrm_apply_status)
+lacrm_readiness = _run_db(lacrm_apply_readiness)
 
-metric_cols = st.columns(6)
+metric_cols = st.columns(7)
 metric_cols[0].metric('SMS Threads', summary.get('sms_threads_total', 0))
 metric_cols[1].metric('SMS Messages', summary.get('sms_messages_total', 0))
 metric_cols[2].metric('Pending Review', review_summary.get('pending_sms_threads_total', 0))
@@ -143,7 +148,7 @@ with right:
                 st.caption(f"{message.get('occurred_at', '')} · {message.get('direction', '')} · {message.get('from_phone', '')} → {message.get('to_phone', '')}")
                 st.write(clean_display_text(message.get('display_body') or message.get('body') or ''))
 
-        action_tabs = st.tabs(['Review', 'Candidates', 'LACRM Dry Run', 'History'])
+        action_tabs = st.tabs(['Review', 'Candidates', 'LACRM Dry Run', 'Apply Audit', 'History'])
 
         with action_tabs[0]:
             st.markdown('##### Review status / note')
@@ -276,6 +281,52 @@ with right:
                     st.rerun()
 
         with action_tabs[3]:
+            st.markdown('##### LACRM apply audit')
+            st.caption('Read-only audit of guarded dry-run/live apply attempts. This tab does not write to LACRM.')
+            readiness = _run_db(lambda session: lacrm_apply_readiness(session))
+            ready_cols = st.columns(4)
+            ready_cols[0].metric('Ready for live apply', 'yes' if readiness.get('ready_for_live_apply') else 'no')
+            ready_cols[1].metric('Dry runs', readiness.get('dry_run_total', 0))
+            ready_cols[2].metric('Blocked', readiness.get('blocked_total', 0))
+            ready_cols[3].metric('Errors', readiness.get('error_total', 0))
+            if readiness.get('blockers'):
+                st.warning('Live apply remains blocked by design.')
+                for blocker in readiness.get('blockers') or []:
+                    st.write(f'- {blocker}')
+            else:
+                st.success('No readiness blockers detected. Keep live-write cutover behind explicit confirmation.')
+            status_filter = st.selectbox('Apply action status filter', ['', 'dry_run', 'blocked', 'error', 'applied'], key=f'apply_status_filter_{selected_thread_id}')
+            action_result = _run_db(lambda session: list_crm_apply_actions(session, sms_thread_id=selected_thread_id, status=status_filter, limit=25))
+            actions = action_result.get('actions') or []
+            if not actions:
+                st.info('No CRM apply actions match this thread/filter yet.')
+            else:
+                st.dataframe([
+                    {
+                        'id': action.get('id'),
+                        'status': action.get('status'),
+                        'type': action.get('action_type'),
+                        'target': action.get('target_contact_ref'),
+                        'created_at': action.get('created_at'),
+                        'error': action.get('error'),
+                    }
+                    for action in actions
+                ], use_container_width=True)
+                action_ids = [str(action.get('id')) for action in actions if action.get('id') is not None]
+                selected_action_id = st.selectbox('Inspect apply action', [''] + action_ids, key=f'inspect_apply_{selected_thread_id}')
+                if selected_action_id:
+                    detail_action = _run_db(lambda session: get_crm_apply_action_detail(session, int(selected_action_id)))
+                    st.json(detail_action)
+            export = _run_db(lambda session: crm_apply_action_export(session, status=status_filter, limit=100))
+            st.download_button(
+                'Download apply audit JSON',
+                data=str(export),
+                file_name='lacrm_apply_audit.json',
+                mime='application/json',
+                key=f'apply_audit_download_{selected_thread_id}',
+            )
+
+        with action_tabs[4]:
             st.markdown('##### Thread detail')
             st.json(detail)
             st.markdown('##### Recent review actions')

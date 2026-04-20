@@ -635,6 +635,147 @@ def apply_sms_thread_to_lacrm(
     }
 
 
+
+def _crm_apply_action_payload(row: CRMApplyAction) -> dict[str, Any]:
+    """Return a normalized CRM apply action with parsed payload and audit fields."""
+    payload = _loads_dict(row.payload_json)
+    data = row.model_dump()
+    data['payload'] = payload
+    data['idempotency_key'] = str(payload.get('idempotency_key') or '')
+    data['sms_thread_id'] = payload.get('sms_thread_id')
+    data['operation'] = str(payload.get('operation') or row.action_type)
+    data['target_contact_id'] = _extract_lacrm_contact_id(row.target_contact_ref)
+    data['dry_run'] = bool(payload.get('dry_run', row.status == 'dry_run'))
+    data['confirm_live_write'] = bool(payload.get('confirm_live_write', False))
+    data['live_intent'] = not bool(payload.get('dry_run', True))
+    data['error'] = str(payload.get('error') or '')
+    return data
+
+
+def list_crm_apply_actions(
+    session: Session,
+    *,
+    status: str = '',
+    action_type: str = '',
+    target_contact_ref: str = '',
+    sms_thread_id: int | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """List guarded LACRM apply actions for operator audit/replay review."""
+    limit = max(1, min(int(limit or 50), 500))
+    offset = max(0, int(offset or 0))
+    stmt = select(CRMApplyAction)
+    if status:
+        stmt = stmt.where(CRMApplyAction.status == status)
+    if action_type:
+        stmt = stmt.where(CRMApplyAction.action_type == action_type)
+    if target_contact_ref:
+        stmt = stmt.where(CRMApplyAction.target_contact_ref == target_contact_ref)
+    rows = list(session.exec(stmt.order_by(desc(CRMApplyAction.created_at))).all())
+    payloads = [_crm_apply_action_payload(row) for row in rows]
+    if sms_thread_id is not None:
+        payloads = [row for row in payloads if row.get('sms_thread_id') == sms_thread_id]
+    total = len(payloads)
+    page = payloads[offset:offset + limit]
+    return {
+        'limit': limit,
+        'offset': offset,
+        'total': total,
+        'count': len(page),
+        'actions': page,
+    }
+
+
+def get_crm_apply_action_detail(session: Session, crm_apply_action_id: int) -> dict[str, Any]:
+    row = session.get(CRMApplyAction, crm_apply_action_id)
+    if not row:
+        raise ValueError('CRM apply action not found')
+    data = _crm_apply_action_payload(row)
+    if row.operator_decision_id:
+        decision = session.get(OperatorDecision, row.operator_decision_id)
+        data['operator_decision'] = decision.model_dump() if decision else None
+    else:
+        data['operator_decision'] = None
+    thread_id = data.get('sms_thread_id')
+    if thread_id:
+        thread = session.get(SMSThread, int(thread_id))
+        data['sms_thread'] = _sms_thread_payload(session, thread) if thread else None
+    else:
+        data['sms_thread'] = None
+    return data
+
+
+def crm_apply_action_export(
+    session: Session,
+    *,
+    status: str = '',
+    action_type: str = '',
+    limit: int = 500,
+) -> dict[str, Any]:
+    """Return a compact export-friendly audit list without making live CRM calls."""
+    result = list_crm_apply_actions(session, status=status, action_type=action_type, limit=limit, offset=0)
+    rows: list[dict[str, Any]] = []
+    for action in result['actions']:
+        payload = action.get('payload') if isinstance(action.get('payload'), dict) else {}
+        rows.append({
+            'id': action.get('id'),
+            'created_at': action.get('created_at'),
+            'status': action.get('status'),
+            'action_type': action.get('action_type'),
+            'target_contact_ref': action.get('target_contact_ref'),
+            'target_contact_id': action.get('target_contact_id'),
+            'sms_thread_id': action.get('sms_thread_id'),
+            'idempotency_key': action.get('idempotency_key'),
+            'dry_run': action.get('dry_run'),
+            'confirm_live_write': action.get('confirm_live_write'),
+            'error': action.get('error'),
+            'payload_operation': payload.get('operation'),
+        })
+    return {'count': len(rows), 'rows': rows}
+
+
+def lacrm_apply_readiness(session: Session) -> dict[str, Any]:
+    """Summarize whether the platform is ready for an intentional live LACRM apply step.
+
+    This function does not perform live writes. It only evaluates environment guards,
+    API-key presence, existing dry-run history, and error/blocked action state.
+    """
+    status = lacrm_apply_status(session)
+    status_counts = status.get('status_counts', {}) if isinstance(status.get('status_counts'), dict) else {}
+    dry_run_total = int(status_counts.get('dry_run', 0) or 0)
+    blocked_total = int(status_counts.get('blocked', 0) or 0)
+    error_total = int(status_counts.get('error', 0) or 0)
+    applied_total = int(status_counts.get('applied', 0) or 0)
+    blockers: list[str] = []
+    if not status.get('lacrm_api_key_configured'):
+        blockers.append('LACRM_API_KEY is not configured in the platform environment.')
+    if not status.get('live_write_enabled'):
+        blockers.append('PLATFORM_LACRM_LIVE_WRITE_ENABLED is not true.')
+    if dry_run_total <= 0:
+        blockers.append('No dry-run CRM apply actions have been recorded yet.')
+    if error_total > 0:
+        blockers.append(f'{error_total} CRM apply action(s) are in error status.')
+    return {
+        'ready_for_live_apply': len(blockers) == 0,
+        'safe_default_mode': 'dry_run',
+        'lacrm_api_key_configured': bool(status.get('lacrm_api_key_configured')),
+        'live_write_enabled': bool(status.get('live_write_enabled')),
+        'dry_run_total': dry_run_total,
+        'blocked_total': blocked_total,
+        'error_total': error_total,
+        'applied_total': applied_total,
+        'status_counts': status_counts,
+        'action_type_counts': status.get('action_type_counts', {}),
+        'blockers': blockers,
+        'next_steps': [
+            'Review latest dry-run actions and payloads in the Streamlit Bridge Review Apply Audit tab.',
+            'Confirm selected LACRM contacts are correct before enabling live writes.',
+            'Keep PLATFORM_LACRM_LIVE_WRITE_ENABLED=false until a deliberate live-write cutover step.',
+        ],
+        'latest_actions': status.get('latest_actions', []),
+    }
+
 def lacrm_apply_status(session: Session) -> dict[str, Any]:
     actions = list(session.exec(select(CRMApplyAction).order_by(desc(CRMApplyAction.created_at)).limit(25)).all())
     status_counts: dict[str, int] = {}
