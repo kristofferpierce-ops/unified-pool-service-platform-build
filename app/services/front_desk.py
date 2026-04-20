@@ -68,6 +68,25 @@ def _loads_dict(value: str) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _operator_decision_payload(row: OperatorDecision) -> dict[str, Any]:
+    return row.model_dump()
+
+
+def _task_link_payload(row: CommunicationTaskLink) -> dict[str, Any]:
+    data = row.model_dump()
+    data['kind'] = 'follow_up_task'
+    return data
+
+
+def _routing_preference_payload(row: RoutingPreference | None) -> dict[str, Any] | None:
+    if not row:
+        return None
+    data = row.model_dump()
+    data['favorite_refs'] = loads(row.favorite_refs_json, [])
+    data.pop('favorite_refs_json', None)
+    return data
+
+
 def _sms_message_payload(row: SMSMessage) -> dict[str, Any]:
     data = row.model_dump()
     data['display_body'] = clean_display_text(row.body)
@@ -100,6 +119,14 @@ def _sms_thread_payload(
         'internal_phone': row.internal_phone,
         'local_day': row.local_day.isoformat() if row.local_day else '',
     }
+    routing = session.exec(select(RoutingPreference).where(RoutingPreference.phone == row.external_phone)).first()
+    data['routing_preference'] = _routing_preference_payload(routing)
+    decisions = list(session.exec(
+        select(OperatorDecision)
+        .where(OperatorDecision.sms_thread_id == row.id)
+        .order_by(desc(OperatorDecision.created_at))
+    ).all())
+    data['operator_decisions'] = [_operator_decision_payload(decision) for decision in decisions]
     if include_messages:
         messages = list(session.exec(
             select(SMSMessage)
@@ -184,6 +211,125 @@ def bridge_review_summary(session: Session) -> dict[str, Any]:
     }
 
 
+
+_ALLOWED_THREAD_STATUSES = {
+    'pending_review',
+    'needs_follow_up',
+    'waiting_on_customer',
+    'waiting_on_internal',
+    'approved',
+    'closed',
+    'ignored',
+    'escalated',
+}
+
+
+def set_sms_thread_review_status(
+    session: Session,
+    sms_thread_id: int,
+    *,
+    status: str,
+    decided_by: str = 'operator',
+    notes: str = '',
+) -> dict[str, Any]:
+    """Update the platform-owned review status for an SMS thread and audit it.
+
+    This intentionally does not write back to the bridge or LACRM. It is the first
+    platform-side review ownership step after ingestion/parity.
+    """
+    normalized_status = (status or '').strip().lower()
+    if normalized_status not in _ALLOWED_THREAD_STATUSES:
+        raise ValueError(f"Unsupported SMS thread status: {status}")
+    thread = session.get(SMSThread, sms_thread_id)
+    if not thread:
+        raise ValueError('SMS thread not found')
+    previous_status = thread.status
+    thread.status = normalized_status
+    session.add(thread)
+    decision = OperatorDecision(
+        sms_thread_id=sms_thread_id,
+        decision=f'status:{normalized_status}',
+        chosen_contact_ref='',
+        notes=notes,
+        decided_by=decided_by or 'operator',
+    )
+    session.add(decision)
+    session.commit()
+    session.refresh(thread)
+    session.refresh(decision)
+    return {
+        'sms_thread_id': sms_thread_id,
+        'previous_status': previous_status,
+        'status': thread.status,
+        'operator_decision_id': decision.id,
+        'decided_by': decision.decided_by,
+        'notes': decision.notes,
+    }
+
+
+def add_sms_thread_review_note(
+    session: Session,
+    sms_thread_id: int,
+    *,
+    note: str,
+    decided_by: str = 'operator',
+) -> dict[str, Any]:
+    thread = session.get(SMSThread, sms_thread_id)
+    if not thread:
+        raise ValueError('SMS thread not found')
+    cleaned_note = (note or '').strip()
+    if not cleaned_note:
+        raise ValueError('Review note is required')
+    decision = OperatorDecision(
+        sms_thread_id=sms_thread_id,
+        decision='note',
+        chosen_contact_ref='',
+        notes=cleaned_note,
+        decided_by=decided_by or 'operator',
+    )
+    session.add(decision)
+    session.commit()
+    session.refresh(decision)
+    return {
+        'sms_thread_id': sms_thread_id,
+        'operator_decision_id': decision.id,
+        'decision': decision.decision,
+        'decided_by': decision.decided_by,
+        'notes': decision.notes,
+        'created_at': decision.created_at.isoformat(),
+    }
+
+
+def list_review_actions(
+    session: Session,
+    *,
+    sms_thread_id: int | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    limit = max(1, min(int(limit or 50), 250))
+    offset = max(0, int(offset or 0))
+    stmt = select(OperatorDecision).order_by(desc(OperatorDecision.created_at)).offset(offset).limit(limit)
+    if sms_thread_id:
+        stmt = select(OperatorDecision).where(OperatorDecision.sms_thread_id == sms_thread_id).order_by(desc(OperatorDecision.created_at)).offset(offset).limit(limit)
+    rows = list(session.exec(stmt).all())
+    thread_ids = {row.sms_thread_id for row in rows if row.sms_thread_id}
+    threads = {row.id: row for row in session.exec(select(SMSThread).where(SMSThread.id.in_(thread_ids))).all()} if thread_ids else {}
+    actions: list[dict[str, Any]] = []
+    for row in rows:
+        payload = row.model_dump()
+        thread = threads.get(row.sms_thread_id or 0)
+        if thread:
+            payload['sms_thread'] = {
+                'id': thread.id,
+                'external_phone': thread.external_phone,
+                'local_day': thread.local_day.isoformat() if thread.local_day else '',
+                'status': thread.status,
+                'display_summary': clean_display_text(thread.summary),
+            }
+        actions.append(payload)
+    return {'limit': limit, 'offset': offset, 'count': len(actions), 'actions': actions}
+
 def compare_bridge_sms_batches(session: Session, bridge_batches: list[dict[str, Any]]) -> dict[str, Any]:
     platform_threads = list(session.exec(select(SMSThread)).all())
     platform_keys = {(row.external_phone, row.local_day.isoformat() if row.local_day else '') for row in platform_threads}
@@ -210,6 +356,34 @@ def compare_bridge_sms_batches(session: Session, bridge_batches: list[dict[str, 
         'missing_count': len(missing),
         'matched_preview': matched[:25],
         'missing_preview': missing[:25],
+    }
+
+
+def review_action_summary(session: Session) -> dict[str, Any]:
+    decisions = list(session.exec(select(OperatorDecision).order_by(desc(OperatorDecision.created_at)).limit(50)).all())
+    tasks = list(session.exec(select(CommunicationTaskLink).order_by(desc(CommunicationTaskLink.created_at)).limit(50)).all())
+    routing = list(session.exec(select(RoutingPreference).order_by(desc(RoutingPreference.updated_at)).limit(50)).all())
+    apply_actions = list(session.exec(select(CRMApplyAction).order_by(desc(CRMApplyAction.created_at)).limit(50)).all())
+    approved_threads = list(session.exec(select(SMSThread).where(SMSThread.status == 'approved')).all())
+    pending_threads = list(session.exec(select(SMSThread).where(SMSThread.status == 'pending_review')).all())
+    task_status_counts: dict[str, int] = {}
+    apply_status_counts: dict[str, int] = {}
+    for task in tasks:
+        task_status_counts[task.status] = task_status_counts.get(task.status, 0) + 1
+    for action in apply_actions:
+        apply_status_counts[action.status] = apply_status_counts.get(action.status, 0) + 1
+    return {
+        'operator_decisions_total': len(list(session.exec(select(OperatorDecision)).all())),
+        'approved_sms_threads_total': len(approved_threads),
+        'pending_sms_threads_total': len(pending_threads),
+        'task_links_total': len(list(session.exec(select(CommunicationTaskLink)).all())),
+        'task_status_counts': task_status_counts,
+        'routing_preferences_total': len(list(session.exec(select(RoutingPreference)).all())),
+        'crm_apply_actions_total': len(list(session.exec(select(CRMApplyAction)).all())),
+        'crm_apply_status_counts': apply_status_counts,
+        'latest_decisions': [_operator_decision_payload(row) for row in decisions[:10]],
+        'latest_tasks': [_task_link_payload(row) for row in tasks[:10]],
+        'latest_routing_preferences': [_routing_preference_payload(row) for row in routing[:10]],
     }
 
 def list_queue(session: Session) -> dict[str, list[dict[str, Any]]]:

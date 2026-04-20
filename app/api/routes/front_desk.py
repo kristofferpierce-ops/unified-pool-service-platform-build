@@ -20,8 +20,12 @@ from app.services.front_desk import (
     create_follow_up_task,
     get_sms_thread_detail,
     list_queue,
+    list_review_actions,
     list_sms_threads,
+    review_action_summary,
     save_routing_preference,
+    set_sms_thread_review_status,
+    add_sms_thread_review_note,
 )
 
 router = APIRouter(prefix='/front-desk', tags=['front-desk'])
@@ -45,6 +49,17 @@ class TaskBody(BaseModel):
     title: str
     assignee_ref: str = ''
     due_date: date | None = None
+
+
+class ReviewStatusBody(BaseModel):
+    status: str
+    decided_by: str = 'operator'
+    notes: str = ''
+
+
+class ReviewNoteBody(BaseModel):
+    note: str
+    decided_by: str = 'operator'
 
 
 @router.get('/queue')
@@ -76,10 +91,46 @@ def sms_thread_detail(sms_thread_id: int):
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.get('/review-actions')
+def review_actions(sms_thread_id: int | None = None, limit: int = 50, offset: int = 0):
+    with Session(engine) as session:
+        return list_review_actions(session, sms_thread_id=sms_thread_id, limit=limit, offset=offset)
+
+
+@router.post('/sms-threads/{sms_thread_id}/review-status')
+def sms_thread_review_status(sms_thread_id: int, body: ReviewStatusBody):
+    with Session(engine) as session:
+        try:
+            return set_sms_thread_review_status(
+                session,
+                sms_thread_id,
+                status=body.status,
+                decided_by=body.decided_by,
+                notes=body.notes,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400 if 'Unsupported' in str(exc) else 404, detail=str(exc)) from exc
+
+
+@router.post('/sms-threads/{sms_thread_id}/review-note')
+def sms_thread_review_note(sms_thread_id: int, body: ReviewNoteBody):
+    with Session(engine) as session:
+        try:
+            return add_sms_thread_review_note(session, sms_thread_id, note=body.note, decided_by=body.decided_by)
+        except ValueError as exc:
+            raise HTTPException(status_code=400 if 'required' in str(exc) else 404, detail=str(exc)) from exc
+
+
 @router.get('/bridge-review-summary')
 def bridge_review_queue_summary():
     with Session(engine) as session:
         return bridge_review_summary(session)
+
+
+@router.get('/review-action-summary')
+def front_desk_review_action_summary():
+    with Session(engine) as session:
+        return review_action_summary(session)
 
 
 @router.get('/bridge-compare/sms-batches')
