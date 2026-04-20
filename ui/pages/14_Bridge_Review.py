@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+import json
 import sys
 from pathlib import Path
 from typing import Any
@@ -70,6 +71,120 @@ def _candidate_ref_options(detail: dict[str, Any]) -> list[str]:
     return refs
 
 
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _bool_word(value: Any) -> str:
+    return 'yes' if bool(value) else 'no'
+
+
+def _action_payload(action: dict[str, Any]) -> dict[str, Any]:
+    payload = action.get('payload')
+    return payload if isinstance(payload, dict) else {}
+
+
+def _is_synthetic_apply_action(action: dict[str, Any]) -> bool:
+    """Best-effort marker for Phase 19 shell/test records so operators can hide them."""
+    payload = _action_payload(action)
+    haystack = ' '.join([
+        str(action.get('target_contact_ref') or ''),
+        str(action.get('payload_json') or ''),
+        str(action.get('idempotency_key') or payload.get('idempotency_key') or ''),
+        str(payload.get('parameters') or ''),
+        str(action.get('error') or payload.get('error') or ''),
+    ]).lower()
+    return any(marker in haystack for marker in (
+        'phase19-step',
+        'step5',
+        'step6',
+        'step8',
+        'step9',
+        'step10',
+        'smoke',
+        'synthetic',
+        'audit-test',
+        'shell-test',
+        'shell live',
+    ))
+
+
+def _action_rows(actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for action in actions:
+        payload = _action_payload(action)
+        rows.append({
+            'id': action.get('id'),
+            'status': action.get('status'),
+            'type': action.get('action_type') or action.get('operation'),
+            'target': action.get('target_contact_ref'),
+            'thread': action.get('sms_thread_id') or payload.get('sms_thread_id'),
+            'dry_run': action.get('dry_run', payload.get('dry_run')),
+            'synthetic': _is_synthetic_apply_action(action),
+            'created_at': action.get('created_at'),
+            'error': clean_display_text(action.get('error') or payload.get('error') or ''),
+        })
+    return rows
+
+
+def _render_safety_cards(status: dict[str, Any], readiness: dict[str, Any], live: dict[str, Any]) -> None:
+    live_enabled = bool(status.get('live_write_enabled'))
+    live_armed = bool(status.get('live_write_armed'))
+    live_ready = bool(live.get('ready_for_live_apply'))
+    applied_total = _safe_int((status.get('status_counts') or {}).get('applied'))
+
+    if not live_enabled and not live_armed:
+        st.success('LIVE LACRM WRITES ARE OFF / BLOCKED BY DEFAULT — dry-run mode is active.')
+    elif not live_ready:
+        st.warning('Live-write controls are partially configured, but live apply is still blocked.')
+    else:
+        st.error('Live apply readiness is TRUE. Confirm this is intentional before using live writes.')
+
+    cols = st.columns(6)
+    cols[0].metric('LACRM key', _bool_word(status.get('lacrm_api_key_configured')))
+    cols[1].metric('Live enabled', _bool_word(live_enabled))
+    cols[2].metric('Live armed', _bool_word(live_armed))
+    cols[3].metric('Live ready', _bool_word(live_ready))
+    cols[4].metric('Applied actions', applied_total)
+    cols[5].metric('Default mode', status.get('default_mode') or readiness.get('safe_default_mode') or 'dry_run')
+
+    blockers = live.get('blockers') or readiness.get('blockers') or []
+    if blockers:
+        st.markdown('**Current blockers**')
+        for blocker in blockers:
+            st.write(f'- {clean_display_text(str(blocker))}')
+    else:
+        st.info('No blockers reported. Keep live-write cutover behind explicit confirmation and management approval.')
+
+    st.caption(f"Required live confirmation phrase: `{live.get('required_confirmation_phrase') or status.get('required_confirmation_phrase') or 'WRITE TO LACRM'}`")
+
+
+def _render_apply_action_detail(action: dict[str, Any]) -> None:
+    payload = _action_payload(action)
+    params = payload.get('parameters') if isinstance(payload.get('parameters'), dict) else {}
+    st.markdown(f"**Status:** `{action.get('status')}`  ")
+    st.markdown(f"**Type:** `{action.get('action_type') or action.get('operation')}`  ")
+    st.markdown(f"**Target:** `{action.get('target_contact_ref')}`  ")
+    st.markdown(f"**Idempotency key:** `{action.get('idempotency_key') or payload.get('idempotency_key') or ''}`")
+    error = clean_display_text(action.get('error') or payload.get('error') or '')
+    if error:
+        st.warning(error)
+    blockers = action.get('live_gate_blockers') or payload.get('live_gate_blockers') or []
+    if blockers:
+        st.markdown('**Live gate blockers**')
+        for blocker in blockers:
+            st.write(f'- {clean_display_text(str(blocker))}')
+    if params:
+        with st.expander('Payload parameters', expanded=False):
+            st.json(params)
+    with st.expander('Raw apply-action JSON', expanded=False):
+        st.json(action)
+
+
 st.title('Bridge Review')
 st.caption('Platform-side review of bridge-origin SMS threads. The original bridge/Data Hub remains on port 8000; this page writes platform state by default and uses Step 6 guarded LACRM apply controls only when explicitly requested.')
 
@@ -89,13 +204,19 @@ metric_cols[5].metric('LACRM Mode', lacrm_status.get('mode', lacrm_status.get('s
 metric_cols[6].metric('Live Armed', 'yes' if lacrm_status.get('live_write_armed') else 'no')
 metric_cols[7].metric('Live Ready', 'yes' if lacrm_readiness.get('ready_for_live_apply') else 'no')
 
-with st.expander('Safety and connection status', expanded=False):
-    st.json(lacrm_status)
+with st.expander('Safety and connection status', expanded=True):
+    _render_safety_cards(lacrm_status, lacrm_readiness, live_readiness)
     st.markdown(
         '- Dry-run apply writes local `CRMApplyAction` rows only.\n'
-        '- Live LACRM writes remain blocked unless the API key, live-write env flag, dry-run override, and explicit confirmation are all present.\n'
+        '- Live LACRM writes remain blocked unless the API key, live-write env flags, armed flag, dry-run override, and exact typed confirmation phrase are all present.\n'
         '- Bridge Data Hub remains available separately at `http://127.0.0.1:8000`.'
     )
+    with st.expander('Raw safety JSON for debugging/export', expanded=False):
+        st.json({
+            'lacrm_status': lacrm_status,
+            'lacrm_readiness': lacrm_readiness,
+            'live_readiness': live_readiness,
+        })
 
 st.subheader('Filters')
 filter_cols = st.columns([1, 1, 1, 1, 1])
@@ -291,49 +412,43 @@ with right:
             st.markdown('##### LACRM apply audit')
             st.caption('Read-only audit of guarded dry-run/live apply attempts. This tab does not write to LACRM.')
             readiness = _run_db(lambda session: lacrm_apply_readiness(session))
-            ready_cols = st.columns(4)
-            ready_cols[0].metric('Ready for live apply', 'yes' if readiness.get('ready_for_live_apply') else 'no')
-            ready_cols[1].metric('Dry runs', readiness.get('dry_run_total', 0))
-            ready_cols[2].metric('Blocked', readiness.get('blocked_total', 0))
-            ready_cols[3].metric('Errors', readiness.get('error_total', 0))
-            if readiness.get('blockers'):
-                st.warning('Live apply remains blocked by design.')
-                for blocker in readiness.get('blockers') or []:
-                    st.write(f'- {blocker}')
-            else:
-                st.success('No readiness blockers detected. Keep live-write cutover behind explicit confirmation.')
-            st.markdown('##### Step 10 live gate')
-            st.json(live_readiness)
-            status_filter = st.selectbox('Apply action status filter', ['', 'dry_run', 'blocked', 'error', 'applied'], key=f'apply_status_filter_{selected_thread_id}')
-            action_result = _run_db(lambda session: list_crm_apply_actions(session, sms_thread_id=selected_thread_id, status=status_filter, limit=25))
-            actions = action_result.get('actions') or []
+            thread_live = _run_db(lambda session: lacrm_live_apply_readiness(session))
+            _render_safety_cards(lacrm_status, readiness, thread_live)
+
+            filter_cols = st.columns([1, 1, 1])
+            status_filter = filter_cols[0].selectbox('Apply action status filter', ['', 'dry_run', 'blocked', 'queued', 'error', 'applied'], key=f'apply_status_filter_{selected_thread_id}')
+            audit_scope = filter_cols[1].selectbox('Audit scope', ['Selected thread only', 'All actions'], key=f'apply_audit_scope_{selected_thread_id}')
+            hide_synthetic = filter_cols[2].checkbox('Hide synthetic Phase 19 test actions', value=True, key=f'hide_synthetic_apply_{selected_thread_id}')
+
+            action_thread_id = selected_thread_id if audit_scope == 'Selected thread only' else None
+            action_result = _run_db(lambda session: list_crm_apply_actions(session, sms_thread_id=action_thread_id, status=status_filter, limit=100))
+            raw_actions = action_result.get('actions') or []
+            actions = [action for action in raw_actions if not (hide_synthetic and _is_synthetic_apply_action(action))]
+            hidden_count = len(raw_actions) - len(actions)
+            if hidden_count:
+                st.caption(f'Hidden synthetic/test apply actions: {hidden_count}')
+
             if not actions:
-                st.info('No CRM apply actions match this thread/filter yet.')
+                st.info('No CRM apply actions match this filter. Try All actions or uncheck the synthetic filter.')
             else:
-                st.dataframe([
-                    {
-                        'id': action.get('id'),
-                        'status': action.get('status'),
-                        'type': action.get('action_type'),
-                        'target': action.get('target_contact_ref'),
-                        'created_at': action.get('created_at'),
-                        'error': action.get('error'),
-                    }
-                    for action in actions
-                ], use_container_width=True)
+                rows = _action_rows(actions)
+                st.dataframe(rows, use_container_width=True, hide_index=True)
                 action_ids = [str(action.get('id')) for action in actions if action.get('id') is not None]
                 selected_action_id = st.selectbox('Inspect apply action', [''] + action_ids, key=f'inspect_apply_{selected_thread_id}')
                 if selected_action_id:
                     detail_action = _run_db(lambda session: get_crm_apply_action_detail(session, int(selected_action_id)))
-                    st.json(detail_action)
-            export = _run_db(lambda session: crm_apply_action_export(session, status=status_filter, limit=100))
+                    _render_apply_action_detail(detail_action)
+
+            export = _run_db(lambda session: crm_apply_action_export(session, status=status_filter, limit=250))
             st.download_button(
-                'Download apply audit JSON',
-                data=str(export),
+                'Download raw apply audit JSON',
+                data=json.dumps(export, default=str, indent=2),
                 file_name='lacrm_apply_audit.json',
                 mime='application/json',
                 key=f'apply_audit_download_{selected_thread_id}',
             )
+            with st.expander('Raw audit export preview', expanded=False):
+                st.json(export)
 
         with action_tabs[4]:
             st.markdown('##### Thread detail')
