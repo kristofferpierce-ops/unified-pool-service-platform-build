@@ -63,6 +63,7 @@ with launch_c:
 with launch_d:
     st.page_link('pages/8_Compare_&_Train.py', label='Compare + Train', icon='📊', help='Open compare and train workflows for pricing calibration and review.')
     st.page_link('pages/10_Estimate_Library.py', label='Estimate Library', icon='📚', help='Open saved estimate runs and exported reporting views.')
+    st.page_link('pages/14_Bridge_Review.py', label='Bridge Review', icon='☎️', help='Open the platform-side bridge SMS review and guarded LACRM dry-run apply page.')
 
 st.subheader('Quote workflow dashboard')
 st.caption('These cards mirror the current CRM bucket language so staff can recognize the same workflow while the platform becomes the orchestration layer.')
