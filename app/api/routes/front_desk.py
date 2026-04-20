@@ -32,6 +32,7 @@ from app.services.front_desk import (
     build_lacrm_candidates_for_sms_thread,
     lacrm_apply_status,
     lacrm_apply_readiness,
+    lacrm_live_apply_readiness,
     list_crm_apply_actions,
     get_crm_apply_action_detail,
     crm_apply_action_export,
@@ -82,6 +83,7 @@ class LACRMApplyBody(BaseModel):
     decided_by: str = 'operator'
     dry_run: bool = True
     confirm_live_write: bool = False
+    live_confirmation_phrase: str = ''
     idempotency_key: str = ''
 
 
@@ -187,6 +189,12 @@ def front_desk_lacrm_apply_readiness():
         return lacrm_apply_readiness(session)
 
 
+@router.get('/lacrm-apply/live-readiness')
+def front_desk_lacrm_live_apply_readiness(submitted_phrase: str = ''):
+    with Session(engine) as session:
+        return lacrm_live_apply_readiness(session, submitted_phrase=submitted_phrase)
+
+
 @router.get('/lacrm-apply/actions')
 def front_desk_lacrm_apply_actions(
     status: str = '',
@@ -260,6 +268,7 @@ def sms_thread_lacrm_apply(sms_thread_id: int, body: LACRMApplyBody):
                 decided_by=body.decided_by,
                 dry_run=body.dry_run,
                 confirm_live_write=body.confirm_live_write,
+                live_confirmation_phrase=body.live_confirmation_phrase,
                 idempotency_key=body.idempotency_key,
             )
         except ValueError as exc:

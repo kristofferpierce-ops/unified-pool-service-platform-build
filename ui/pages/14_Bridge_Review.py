@@ -27,6 +27,7 @@ from app.services.front_desk import (
     get_sms_thread_detail,
     lacrm_apply_status,
     lacrm_apply_readiness,
+    lacrm_live_apply_readiness,
     list_crm_apply_actions,
     get_crm_apply_action_detail,
     crm_apply_action_export,
@@ -76,14 +77,17 @@ summary = _run_db(bridge_review_summary)
 review_summary = _run_db(review_action_summary)
 lacrm_status = _run_db(lacrm_apply_status)
 lacrm_readiness = _run_db(lacrm_apply_readiness)
+live_readiness = _run_db(lacrm_live_apply_readiness)
 
-metric_cols = st.columns(7)
+metric_cols = st.columns(8)
 metric_cols[0].metric('SMS Threads', summary.get('sms_threads_total', 0))
 metric_cols[1].metric('SMS Messages', summary.get('sms_messages_total', 0))
 metric_cols[2].metric('Pending Review', review_summary.get('pending_sms_threads_total', 0))
 metric_cols[3].metric('Approved', review_summary.get('approved_sms_threads_total', 0))
 metric_cols[4].metric('CRM Apply Actions', review_summary.get('crm_apply_actions_total', 0))
 metric_cols[5].metric('LACRM Mode', lacrm_status.get('mode', lacrm_status.get('sync_mode', 'dry_run')))
+metric_cols[6].metric('Live Armed', 'yes' if lacrm_status.get('live_write_armed') else 'no')
+metric_cols[7].metric('Live Ready', 'yes' if lacrm_readiness.get('ready_for_live_apply') else 'no')
 
 with st.expander('Safety and connection status', expanded=False):
     st.json(lacrm_status)
@@ -242,7 +246,7 @@ with right:
 
         with action_tabs[2]:
             st.markdown('##### Guarded LACRM apply')
-            st.caption('Dry-run is the default and recommended mode. Live apply remains blocked unless all Step 6 guards are intentionally enabled.')
+            st.caption('Dry-run is the default and recommended mode. Live apply remains blocked unless all Step 10 guards are intentionally enabled, including the armed flag and typed confirmation phrase.')
             contact_id = st.text_input('LACRM ContactId', value='', key=f'lacrm_contact_{selected_thread_id}')
             chosen_contact_ref = st.text_input('Chosen contact ref', value=f'lacrm_contact:{contact_id}' if contact_id else '', key=f'lacrm_ref_{selected_thread_id}')
             include_note = st.checkbox('Include LACRM note', value=True, key=f'include_note_{selected_thread_id}')
@@ -252,6 +256,8 @@ with right:
             idempotency_key = st.text_input('Optional idempotency key', value='', key=f'idempotency_{selected_thread_id}')
             dry_run = st.checkbox('Dry run', value=True, key=f'dry_run_{selected_thread_id}')
             confirm_live = st.checkbox('I explicitly confirm live LACRM write if dry-run is off', value=False, key=f'confirm_live_{selected_thread_id}')
+            st.caption(f"Required live confirmation phrase: {live_readiness.get('required_confirmation_phrase', 'WRITE TO LACRM')}")
+            live_phrase = st.text_input('Type live confirmation phrase', value='', key=f'live_phrase_{selected_thread_id}')
             payload = {
                 'chosen_contact_ref': chosen_contact_ref,
                 'contact_id': contact_id,
@@ -262,12 +268,13 @@ with right:
                 'decided_by': decided_by,
                 'dry_run': dry_run,
                 'confirm_live_write': confirm_live,
+                'live_confirmation_phrase': live_phrase,
                 'idempotency_key': idempotency_key,
             }
             preview_col, apply_col = st.columns(2)
             with preview_col:
                 if st.button('Preview LACRM payload', key=f'preview_lacrm_{selected_thread_id}'):
-                    preview_payload = {k: v for k, v in payload.items() if k not in {'dry_run', 'confirm_live_write', 'decided_by'}}
+                    preview_payload = {k: v for k, v in payload.items() if k not in {'dry_run', 'confirm_live_write', 'live_confirmation_phrase', 'decided_by'}}
                     result = _run_db(lambda session: build_sms_thread_lacrm_apply_plan(session, selected_thread_id, **preview_payload))
                     st.json(result)
             with apply_col:
@@ -295,6 +302,8 @@ with right:
                     st.write(f'- {blocker}')
             else:
                 st.success('No readiness blockers detected. Keep live-write cutover behind explicit confirmation.')
+            st.markdown('##### Step 10 live gate')
+            st.json(live_readiness)
             status_filter = st.selectbox('Apply action status filter', ['', 'dry_run', 'blocked', 'error', 'applied'], key=f'apply_status_filter_{selected_thread_id}')
             action_result = _run_db(lambda session: list_crm_apply_actions(session, sms_thread_id=selected_thread_id, status=status_filter, limit=25))
             actions = action_result.get('actions') or []

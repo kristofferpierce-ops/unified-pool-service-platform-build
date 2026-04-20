@@ -394,6 +394,72 @@ def _truthy_env(name: str) -> bool:
     return (os.getenv(name, '') or '').strip().lower() in {'1', 'true', 'yes', 'on'}
 
 
+def _live_confirmation_phrase() -> str:
+    return (os.getenv('PLATFORM_LACRM_LIVE_WRITE_CONFIRMATION_PHRASE') or 'WRITE TO LACRM').strip() or 'WRITE TO LACRM'
+
+
+def _lacrm_live_apply_gate_snapshot(session: Session, *, submitted_phrase: str = '') -> dict[str, Any]:
+    """Return the live-write gate state without performing any CRM writes.
+
+    Step 10 intentionally adds a second arm switch and a typed phrase gate on top
+    of the Step 6 dry-run/live-write controls. The phrase is not a secret; it is
+    a deliberate friction point so accidental checkbox clicks cannot write to LACRM.
+    """
+    status = lacrm_apply_status(session)
+    status_counts = status.get('status_counts', {}) if isinstance(status.get('status_counts'), dict) else {}
+    dry_run_total = int(status_counts.get('dry_run', 0) or 0)
+    error_total = int(status_counts.get('error', 0) or 0)
+    phrase = _live_confirmation_phrase()
+    submitted = (submitted_phrase or '').strip()
+    phrase_matched = submitted == phrase if submitted else False
+    gates = {
+        'lacrm_api_key_configured': bool(status.get('lacrm_api_key_configured')),
+        'live_write_enabled': _truthy_env('PLATFORM_LACRM_LIVE_WRITE_ENABLED'),
+        'live_write_armed': _truthy_env('PLATFORM_LACRM_LIVE_WRITE_ARMED'),
+        'dry_run_history_present': dry_run_total > 0,
+        'no_error_actions': error_total == 0,
+        'confirmation_phrase_matched': phrase_matched,
+    }
+    blockers: list[str] = []
+    if not gates['lacrm_api_key_configured']:
+        blockers.append('LACRM_API_KEY is not configured in the platform environment.')
+    if not gates['live_write_enabled']:
+        blockers.append('PLATFORM_LACRM_LIVE_WRITE_ENABLED is not true.')
+    if not gates['live_write_armed']:
+        blockers.append('PLATFORM_LACRM_LIVE_WRITE_ARMED is not true.')
+    if not gates['dry_run_history_present']:
+        blockers.append('At least one dry-run CRM apply action must exist before any live apply attempt.')
+    if not gates['no_error_actions']:
+        blockers.append(f'{error_total} CRM apply action(s) are in error status.')
+    if submitted and not gates['confirmation_phrase_matched']:
+        blockers.append('Typed live confirmation phrase does not match the configured phrase.')
+    elif not submitted:
+        blockers.append('Typed live confirmation phrase is required for live apply attempts.')
+    return {
+        'safe_default_mode': 'dry_run',
+        'ready_for_live_apply': len(blockers) == 0,
+        'gates': gates,
+        'blockers': blockers,
+        'required_confirmation_phrase': phrase,
+        'submitted_confirmation_phrase_present': bool(submitted),
+        'dry_run_total': dry_run_total,
+        'error_total': error_total,
+        'status_counts': status_counts,
+        'latest_actions': status.get('latest_actions', []),
+    }
+
+
+def lacrm_live_apply_readiness(session: Session, *, submitted_phrase: str = '') -> dict[str, Any]:
+    """Public readiness view for the guarded live-apply cutover controls."""
+    snapshot = _lacrm_live_apply_gate_snapshot(session, submitted_phrase=submitted_phrase)
+    snapshot['next_steps'] = [
+        'Keep dry_run=true for normal operator review.',
+        'Review the Apply Audit tab before considering live writes.',
+        'For a future live cutover, configure LACRM_API_KEY, PLATFORM_LACRM_LIVE_WRITE_ENABLED=true, PLATFORM_LACRM_LIVE_WRITE_ARMED=true, and type the confirmation phrase.',
+    ]
+    return snapshot
+
+
 def _extract_lacrm_contact_id(chosen_contact_ref: str = '', contact_id: str = '') -> str:
     explicit = (contact_id or '').strip()
     if explicit:
@@ -517,6 +583,7 @@ def apply_sms_thread_to_lacrm(
     decided_by: str = 'operator',
     dry_run: bool = True,
     confirm_live_write: bool = False,
+    live_confirmation_phrase: str = '',
     idempotency_key: str = '',
 ) -> dict[str, Any]:
     """Queue or execute guarded LACRM actions for an SMS thread.
@@ -537,15 +604,16 @@ def apply_sms_thread_to_lacrm(
         idempotency_key=idempotency_key,
     )
     live_requested = not dry_run
-    live_allowed = bool(live_requested and confirm_live_write and _truthy_env('PLATFORM_LACRM_LIVE_WRITE_ENABLED'))
+    live_gate = _lacrm_live_apply_gate_snapshot(session, submitted_phrase=live_confirmation_phrase)
+    live_blockers = list(live_gate.get('blockers') or [])
+    if live_requested and not confirm_live_write:
+        live_blockers.append('confirm_live_write must be true for live apply attempts.')
+    live_allowed = bool(live_requested and confirm_live_write and not live_blockers)
     client = get_lacrm_client() if live_allowed else None
-    if live_requested and not live_allowed:
-        live_block_reason = 'Live LACRM write blocked. Require dry_run=false, confirm_live_write=true, and PLATFORM_LACRM_LIVE_WRITE_ENABLED=true.'
-    elif live_allowed and client is None:
-        live_block_reason = 'Live LACRM write blocked because LACRM_API_KEY is not configured.'
+    if live_allowed and client is None:
+        live_blockers.append('Live LACRM write blocked because LACRM_API_KEY is not configured.')
         live_allowed = False
-    else:
-        live_block_reason = ''
+    live_block_reason = 'Live LACRM write blocked: ' + '; '.join(live_blockers) if live_requested and not live_allowed else ''
 
     decision = OperatorDecision(
         sms_thread_id=sms_thread_id,
@@ -601,6 +669,9 @@ def apply_sms_thread_to_lacrm(
             'dry_run': dry_run,
             'confirm_live_write': confirm_live_write,
             'live_write_enabled': _truthy_env('PLATFORM_LACRM_LIVE_WRITE_ENABLED'),
+            'live_write_armed': _truthy_env('PLATFORM_LACRM_LIVE_WRITE_ARMED'),
+            'live_confirmation_phrase_matched': bool(live_gate.get('gates', {}).get('confirmation_phrase_matched')),
+            'live_gate_blockers': live_blockers,
             'response': response_payload,
             'error': error,
         }
@@ -632,6 +703,7 @@ def apply_sms_thread_to_lacrm(
         'operation_count': len(results),
         'results': results,
         'live_block_reason': live_block_reason,
+        'live_readiness': live_gate,
     }
 
 
@@ -647,6 +719,9 @@ def _crm_apply_action_payload(row: CRMApplyAction) -> dict[str, Any]:
     data['target_contact_id'] = _extract_lacrm_contact_id(row.target_contact_ref)
     data['dry_run'] = bool(payload.get('dry_run', row.status == 'dry_run'))
     data['confirm_live_write'] = bool(payload.get('confirm_live_write', False))
+    data['live_write_armed'] = bool(payload.get('live_write_armed', False))
+    data['live_confirmation_phrase_matched'] = bool(payload.get('live_confirmation_phrase_matched', False))
+    data['live_gate_blockers'] = payload.get('live_gate_blockers', []) if isinstance(payload.get('live_gate_blockers'), list) else []
     data['live_intent'] = not bool(payload.get('dry_run', True))
     data['error'] = str(payload.get('error') or '')
     return data
@@ -738,8 +813,10 @@ def crm_apply_action_export(
 def lacrm_apply_readiness(session: Session) -> dict[str, Any]:
     """Summarize whether the platform is ready for an intentional live LACRM apply step.
 
-    This function does not perform live writes. It only evaluates environment guards,
-    API-key presence, existing dry-run history, and error/blocked action state.
+    Step 10 keeps dry-run as the safe default and requires an additional
+    PLATFORM_LACRM_LIVE_WRITE_ARMED flag plus a typed confirmation phrase before
+    any future live write can pass the gate. This function does not perform live
+    writes.
     """
     status = lacrm_apply_status(session)
     status_counts = status.get('status_counts', {}) if isinstance(status.get('status_counts'), dict) else {}
@@ -747,20 +824,15 @@ def lacrm_apply_readiness(session: Session) -> dict[str, Any]:
     blocked_total = int(status_counts.get('blocked', 0) or 0)
     error_total = int(status_counts.get('error', 0) or 0)
     applied_total = int(status_counts.get('applied', 0) or 0)
-    blockers: list[str] = []
-    if not status.get('lacrm_api_key_configured'):
-        blockers.append('LACRM_API_KEY is not configured in the platform environment.')
-    if not status.get('live_write_enabled'):
-        blockers.append('PLATFORM_LACRM_LIVE_WRITE_ENABLED is not true.')
-    if dry_run_total <= 0:
-        blockers.append('No dry-run CRM apply actions have been recorded yet.')
-    if error_total > 0:
-        blockers.append(f'{error_total} CRM apply action(s) are in error status.')
+    live_snapshot = lacrm_live_apply_readiness(session)
+    blockers = [blocker for blocker in live_snapshot.get('blockers', []) if 'Typed live confirmation phrase' not in blocker]
     return {
         'ready_for_live_apply': len(blockers) == 0,
         'safe_default_mode': 'dry_run',
         'lacrm_api_key_configured': bool(status.get('lacrm_api_key_configured')),
         'live_write_enabled': bool(status.get('live_write_enabled')),
+        'live_write_armed': bool(status.get('live_write_armed')),
+        'required_confirmation_phrase': live_snapshot.get('required_confirmation_phrase'),
         'dry_run_total': dry_run_total,
         'blocked_total': blocked_total,
         'error_total': error_total,
@@ -768,10 +840,11 @@ def lacrm_apply_readiness(session: Session) -> dict[str, Any]:
         'status_counts': status_counts,
         'action_type_counts': status.get('action_type_counts', {}),
         'blockers': blockers,
+        'live_gate': live_snapshot.get('gates', {}),
         'next_steps': [
             'Review latest dry-run actions and payloads in the Streamlit Bridge Review Apply Audit tab.',
             'Confirm selected LACRM contacts are correct before enabling live writes.',
-            'Keep PLATFORM_LACRM_LIVE_WRITE_ENABLED=false until a deliberate live-write cutover step.',
+            'Keep PLATFORM_LACRM_LIVE_WRITE_ENABLED=false and PLATFORM_LACRM_LIVE_WRITE_ARMED=false until a deliberate live-write cutover step.',
         ],
         'latest_actions': status.get('latest_actions', []),
     }
@@ -786,6 +859,8 @@ def lacrm_apply_status(session: Session) -> dict[str, Any]:
     return {
         'lacrm_api_key_configured': get_lacrm_client() is not None,
         'live_write_enabled': _truthy_env('PLATFORM_LACRM_LIVE_WRITE_ENABLED'),
+        'live_write_armed': _truthy_env('PLATFORM_LACRM_LIVE_WRITE_ARMED'),
+        'required_confirmation_phrase': _live_confirmation_phrase(),
         'default_mode': 'dry_run',
         'status_counts': status_counts,
         'action_type_counts': type_counts,
