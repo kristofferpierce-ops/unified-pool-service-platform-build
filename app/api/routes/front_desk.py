@@ -23,6 +23,8 @@ from app.services.front_desk import (
     list_review_actions,
     list_sms_threads,
     review_action_summary,
+    text_quality_summary,
+    list_text_quality_samples,
     search_lacrm_contacts,
     save_routing_preference,
     set_sms_thread_review_status,
@@ -121,6 +123,24 @@ def sms_thread_detail(sms_thread_id: int):
             return get_sms_thread_detail(session, sms_thread_id)
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get('/text-quality/summary')
+def front_desk_text_quality_summary(sample_limit: int = 10):
+    with Session(engine) as session:
+        return text_quality_summary(session, sample_limit=sample_limit)
+
+
+@router.get('/text-quality/samples')
+def front_desk_text_quality_samples(kind: str = 'all', only_issues: bool = True, limit: int = 50, offset: int = 0):
+    with Session(engine) as session:
+        return list_text_quality_samples(
+            session,
+            kind=kind,
+            only_issues=only_issues,
+            limit=limit,
+            offset=offset,
+        )
 
 
 @router.get('/review-actions')

@@ -29,18 +29,26 @@ _MOJIBAKE_MARKERS = ('â', 'ð', 'ï', 'Ã', '\ufffd', '\x80', '\x81', '\x82', '
 
 
 def clean_display_text(value: str | None) -> str:
-    """Best-effort cleanup for legacy mojibake without mutating stored data."""
+    """Best-effort cleanup for legacy mojibake without mutating stored data.
+
+    RingCentral and older bridge snapshots can contain text that was decoded as
+    Latin-1/Windows-1252 after being encoded as UTF-8, producing strings like
+    ``donât`` or ``ð``. The platform keeps raw data unchanged and exposes
+    display-only repaired text for operator screens and audit reports.
+    """
     if not value:
         return ''
     text = str(value)
     if not any(marker in text for marker in _MOJIBAKE_MARKERS):
         return text
-    try:
-        repaired = text.encode('latin1').decode('utf-8')
-        if repaired.count('\ufffd') <= text.count('\ufffd'):
-            return repaired
-    except (UnicodeEncodeError, UnicodeDecodeError):
-        pass
+
+    candidates: list[str] = []
+    for encoding in ('latin1', 'cp1252'):
+        try:
+            candidates.append(text.encode(encoding).decode('utf-8'))
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass
+
     replacements = {
         'â': '’',
         'â': '‘',
@@ -49,12 +57,72 @@ def clean_display_text(value: str | None) -> str:
         'â¦': '…',
         'â': '—',
         'â': '–',
+        'â¢': '™',
+        'Â ': ' ',
+        'Â': '',
         'ï¸': '',
+        'ð': '👍',
+        'ð': '😁',
+        'ð': '😅',
+        'ð': '😝',
+        'ð¬': '😬',
+        'ð¤¦ââï¸': '🤦‍♀️',
+        'ð¤¦ââï¸': '🤦‍♂️',
     }
     repaired = text
     for bad, good in replacements.items():
         repaired = repaired.replace(bad, good)
-    return repaired
+    candidates.append(repaired)
+
+    def _score(candidate: str) -> int:
+        marker_count = sum(candidate.count(marker) for marker in _MOJIBAKE_MARKERS)
+        replacement_count = candidate.count('\ufffd')
+        return marker_count * 10 + replacement_count * 20
+
+    return min(candidates, key=_score) if candidates else text
+
+
+def text_has_display_encoding_issue(value: str | None) -> bool:
+    """Return True when display cleanup would materially change text."""
+    if not value:
+        return False
+    text = str(value)
+    return clean_display_text(text) != text or any(marker in text for marker in _MOJIBAKE_MARKERS)
+
+
+def _preview_text(value: str | None, *, limit: int = 280) -> str:
+    text = str(value or '')
+    text = text.replace('\r\n', '\n').replace('\r', '\n')
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + '…'
+
+
+def _text_quality_sample(
+    *,
+    kind: str,
+    field: str,
+    record_id: int | None,
+    sms_thread_id: int | None,
+    external_phone: str = '',
+    local_day: str = '',
+    occurred_at: str = '',
+    source_text: str = '',
+) -> dict[str, Any]:
+    display = clean_display_text(source_text)
+    return {
+        'kind': kind,
+        'field': field,
+        'record_id': record_id,
+        'sms_thread_id': sms_thread_id,
+        'external_phone': external_phone,
+        'local_day': local_day,
+        'occurred_at': occurred_at,
+        'has_issue': text_has_display_encoding_issue(source_text),
+        'raw_preview': _preview_text(source_text),
+        'display_preview': _preview_text(display),
+        'changed': display != str(source_text or ''),
+    }
 
 
 def _date_from_string(value: str) -> date | None:
@@ -93,6 +161,10 @@ def _routing_preference_payload(row: RoutingPreference | None) -> dict[str, Any]
 def _sms_message_payload(row: SMSMessage) -> dict[str, Any]:
     data = row.model_dump()
     data['display_body'] = clean_display_text(row.body)
+    data['text_quality'] = {
+        'body_has_encoding_issue': text_has_display_encoding_issue(row.body),
+        'body_changed_for_display': clean_display_text(row.body) != (row.body or ''),
+    }
     data['raw'] = _loads_dict(row.raw_json)
     data.pop('raw_json', None)
     return data
@@ -112,6 +184,12 @@ def _sms_thread_payload(
     bridge_context = thread_seed.get('bridge_context', {}) if isinstance(thread_seed, dict) else {}
     data['display_summary'] = clean_display_text(row.summary)
     data['display_transcript'] = clean_display_text(row.transcript)
+    data['text_quality'] = {
+        'summary_has_encoding_issue': text_has_display_encoding_issue(row.summary),
+        'transcript_has_encoding_issue': text_has_display_encoding_issue(row.transcript),
+        'summary_changed_for_display': clean_display_text(row.summary) != (row.summary or ''),
+        'transcript_changed_for_display': clean_display_text(row.transcript) != (row.transcript or ''),
+    }
     data['message_count'] = len(list(session.exec(select(SMSMessage).where(SMSMessage.sms_thread_id == row.id)).all()))
     data['bridge_context'] = bridge_context if isinstance(bridge_context, dict) else {}
     data['source'] = data['bridge_context'].get('source', '')
@@ -213,6 +291,105 @@ def bridge_review_summary(session: Session) -> dict[str, Any]:
         'latest_threads': [_sms_thread_payload(session, row) for row in latest],
     }
 
+
+
+def list_text_quality_samples(
+    session: Session,
+    *,
+    kind: str = 'all',
+    only_issues: bool = True,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """List display-cleanup samples without mutating stored RingCentral/bridge text."""
+    normalized_kind = (kind or 'all').strip().lower()
+    limit = max(1, min(int(limit or 50), 250))
+    offset = max(0, int(offset or 0))
+    samples: list[dict[str, Any]] = []
+
+    if normalized_kind in {'all', 'thread', 'threads', 'sms_thread', 'sms_threads'}:
+        threads = list(session.exec(select(SMSThread).order_by(desc(SMSThread.latest_message_at))).all())
+        for thread in threads:
+            local_day = thread.local_day.isoformat() if thread.local_day else ''
+            for field, value in (('summary', thread.summary), ('transcript', thread.transcript)):
+                sample = _text_quality_sample(
+                    kind='sms_thread',
+                    field=field,
+                    record_id=thread.id,
+                    sms_thread_id=thread.id,
+                    external_phone=thread.external_phone,
+                    local_day=local_day,
+                    occurred_at=thread.latest_message_at.isoformat() if thread.latest_message_at else '',
+                    source_text=value or '',
+                )
+                if not only_issues or sample['has_issue']:
+                    samples.append(sample)
+
+    if normalized_kind in {'all', 'message', 'messages', 'sms_message', 'sms_messages'}:
+        messages = list(session.exec(select(SMSMessage).order_by(desc(SMSMessage.occurred_at), desc(SMSMessage.id))).all())
+        thread_ids = {message.sms_thread_id for message in messages if message.sms_thread_id}
+        threads_by_id = {row.id: row for row in session.exec(select(SMSThread).where(SMSThread.id.in_(thread_ids))).all()} if thread_ids else {}
+        for message in messages:
+            thread = threads_by_id.get(message.sms_thread_id)
+            sample = _text_quality_sample(
+                kind='sms_message',
+                field='body',
+                record_id=message.id,
+                sms_thread_id=message.sms_thread_id,
+                external_phone=thread.external_phone if thread else '',
+                local_day=thread.local_day.isoformat() if thread and thread.local_day else '',
+                occurred_at=message.occurred_at.isoformat() if message.occurred_at else '',
+                source_text=message.body or '',
+            )
+            if not only_issues or sample['has_issue']:
+                samples.append(sample)
+
+    total = len(samples)
+    page = samples[offset: offset + limit]
+    return {
+        'kind': normalized_kind,
+        'only_issues': bool(only_issues),
+        'limit': limit,
+        'offset': offset,
+        'total': total,
+        'count': len(page),
+        'samples': page,
+    }
+
+
+def text_quality_summary(session: Session, *, sample_limit: int = 10) -> dict[str, Any]:
+    """Return display-text quality counts for bridge-origin SMS review screens."""
+    threads = list(session.exec(select(SMSThread)).all())
+    messages = list(session.exec(select(SMSMessage)).all())
+    thread_issue_count = 0
+    message_issue_count = 0
+    by_day: dict[str, int] = {}
+    by_phone: dict[str, int] = {}
+    for thread in threads:
+        issue = text_has_display_encoding_issue(thread.summary) or text_has_display_encoding_issue(thread.transcript)
+        if issue:
+            thread_issue_count += 1
+            day = thread.local_day.isoformat() if thread.local_day else ''
+            by_day[day] = by_day.get(day, 0) + 1
+            by_phone[thread.external_phone] = by_phone.get(thread.external_phone, 0) + 1
+    for message in messages:
+        if text_has_display_encoding_issue(message.body):
+            message_issue_count += 1
+    sample_payload = list_text_quality_samples(session, kind='all', only_issues=True, limit=sample_limit, offset=0)
+    return {
+        'safe_mode': 'display_only_no_raw_mutation',
+        'sms_threads_total': len(threads),
+        'sms_threads_with_encoding_issues': thread_issue_count,
+        'sms_messages_total': len(messages),
+        'sms_messages_with_encoding_issues': message_issue_count,
+        'issue_threads_by_day': dict(sorted(by_day.items(), reverse=True)),
+        'top_issue_phones': [
+            {'external_phone': phone, 'issue_count': count}
+            for phone, count in sorted(by_phone.items(), key=lambda item: item[1], reverse=True)[:10]
+        ],
+        'sample_count': sample_payload['count'],
+        'samples': sample_payload['samples'],
+    }
 
 
 _ALLOWED_THREAD_STATUSES = {
