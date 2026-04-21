@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 
@@ -11,6 +11,7 @@ from app.api.routes.bootstrap_admin import router as bootstrap_router
 from app.api.routes.connectors import router as connectors_router
 from app.api.routes.estimates import router as estimates_router
 from app.api.routes.front_desk import router as front_desk_router
+from app.api.routes.routing_candidates import router as routing_candidates_router
 from app.api.routes.freshbooks_oauth import router as freshbooks_oauth_router
 from app.api.routes.health import router as health_router
 from app.api.routes.quote_workflow import router as quote_workflow_router
@@ -20,6 +21,7 @@ from app.core.config import APP_NAME, STATIC_DIR
 from app.core.database import create_db_and_tables, get_session
 import app.models.quote_tables as _quote_tables
 import app.models.heater_quote_tables as _heater_quote_tables
+import app.models.routing_candidates as _routing_candidate_tables
 from app.services.bootstrap import seed_defaults
 
 app = FastAPI(title=APP_NAME)
@@ -29,6 +31,7 @@ app.include_router(system_settings_router)
 app.include_router(estimates_router)
 app.include_router(connectors_router)
 app.include_router(front_desk_router)
+app.include_router(routing_candidates_router)
 app.include_router(freshbooks_oauth_router)
 app.include_router(quote_workflow_router)
 app.include_router(heater_quotes_router)
@@ -58,3 +61,4 @@ def front_page():
     if dashboard.exists():
         return FileResponse(dashboard)
     return {'message': APP_NAME}
+
