@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import os
@@ -8,7 +8,7 @@ from typing import Any
 import streamlit as st
 
 
-st.set_page_config(page_title="Routing Import Plan", page_icon="📥", layout="wide")
+st.set_page_config(page_title="Routing Import Plan", page_icon="ðŸ“¥", layout="wide")
 
 WORKSPACE = Path(os.getenv("KPS_WORKSPACE", r"C:\Users\krist\Desktop\unified_pool_service_platform_build"))
 BACKUP_DIR = WORKSPACE / "backups"
@@ -18,7 +18,11 @@ def latest_plans(limit: int = 20) -> list[Path]:
     if not BACKUP_DIR.exists():
         return []
     return sorted(
-        [p for p in BACKUP_DIR.glob("phase19_routing_import_plan_*") if p.is_dir()],
+        [
+            p
+            for p in BACKUP_DIR.glob("phase19_routing_import_plan_*")
+            if p.is_dir() and (p / "phase19_routing_import_plan.json").exists()
+        ],
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )[:limit]
@@ -28,7 +32,7 @@ def load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
-st.title("📥 Phase 19 Routing Import Plan")
+st.title("ðŸ“¥ Phase 19 Routing Import Plan")
 st.caption("Dry-run import plan for future RoutingPreferenceCandidate rows. No writes are performed.")
 
 st.warning(
@@ -47,7 +51,7 @@ if not plans:
 choice = st.selectbox(
     "Routing import plan",
     options=list(range(len(plans))),
-    format_func=lambda i: f"{plans[i].name} — {plans[i].stat().st_mtime_ns}",
+    format_func=lambda i: f"{plans[i].name} â€” {plans[i].stat().st_mtime_ns}",
 )
 plan_dir = plans[choice]
 json_path = plan_dir / "phase19_routing_import_plan.json"
@@ -134,3 +138,4 @@ st.download_button(
 
 with st.expander("Raw import plan JSON"):
     st.json(plan)
+

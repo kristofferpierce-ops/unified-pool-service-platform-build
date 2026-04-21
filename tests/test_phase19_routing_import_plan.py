@@ -44,3 +44,7 @@ def test_routing_import_plan_docs_capture_boundaries() -> None:
     assert "does not mutate bridge state" in doc
     assert "does not call LACRM" in doc
     assert "Do not stage generated import plans" in doc
+
+def test_routing_import_plan_page_filters_validation_folders() -> None:
+    page = read("ui/pages/29_Routing_Import_Plan.py")
+    assert '(p / "phase19_routing_import_plan.json").exists()' in page
