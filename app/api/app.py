@@ -13,6 +13,7 @@ from app.api.routes.estimates import router as estimates_router
 from app.api.routes.front_desk import router as front_desk_router
 from app.api.routes.routing_candidates import router as routing_candidates_router
 from app.api.routes.routing_candidate_import import router as routing_candidate_import_router
+from app.api.routes.routing_candidate_workbench import router as routing_candidate_workbench_router
 from app.api.routes.freshbooks_oauth import router as freshbooks_oauth_router
 from app.api.routes.health import router as health_router
 from app.api.routes.quote_workflow import router as quote_workflow_router
@@ -34,6 +35,7 @@ app.include_router(connectors_router)
 app.include_router(front_desk_router)
 app.include_router(routing_candidates_router)
 app.include_router(routing_candidate_import_router)
+app.include_router(routing_candidate_workbench_router)
 app.include_router(freshbooks_oauth_router)
 app.include_router(quote_workflow_router)
 app.include_router(heater_quotes_router)
@@ -63,5 +65,6 @@ def front_page():
     if dashboard.exists():
         return FileResponse(dashboard)
     return {'message': APP_NAME}
+
 
 
