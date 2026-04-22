@@ -1,0 +1,274 @@
+﻿from __future__ import annotations
+
+import hashlib
+import json
+import os
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+
+ROUTING_BRIDGE_NETWORK_TRANSPORT_DRY_RUN_INVOCATION_PATH_VERSION = "phase20-step19-v1"
+REQUIRED_TRANSPORT_CONFIRMATION = "ENABLE BRIDGE TRANSPORT DESIGN"
+
+
+@dataclass(frozen=True)
+class BridgeRoutingDryRunInvocationRequest:
+    phone: str
+    mode: str = "dry_run"
+    owner_type: str = "unknown"
+    label: str = ""
+    default_contact_ids: list[str] = field(default_factory=list)
+    notes: str = ""
+    idempotency_key: str = ""
+
+
+@dataclass(frozen=True)
+class BridgeRoutingDryRunInvocationResult:
+    ok: bool = False
+    status_code: int = 0
+    transport_mode: str = "dry_run_no_network"
+    invocation_kind: str = "dry_run_invocation_path_only"
+    would_open_socket: bool = False
+    would_send_http_request: bool = False
+    would_call_bridge: bool = False
+    would_mutate_bridge: bool = False
+    would_mutate_platform: bool = False
+    would_call_lacrm: bool = False
+    message: str = "Dry-run invocation path only. No network transport is implemented."
+
+
+def _truthy(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def bridge_routing_network_transport_dry_run_invocation_path_status() -> dict[str, Any]:
+    return {
+        "invocation_path_version": ROUTING_BRIDGE_NETWORK_TRANSPORT_DRY_RUN_INVOCATION_PATH_VERSION,
+        "safe_default": "dry_run_invocation_path_only_no_network",
+        "bridge_routing_network_transport_dry_run_invocation_path_only": True,
+        "bridge_network_transport_design_enabled": _truthy(os.getenv("PLATFORM_BRIDGE_NETWORK_TRANSPORT_DESIGN_ENABLED")),
+        "bridge_network_transport_design_armed": _truthy(os.getenv("PLATFORM_BRIDGE_NETWORK_TRANSPORT_DESIGN_ARMED")),
+        "bridge_routing_write_enabled": _truthy(os.getenv("PLATFORM_BRIDGE_ROUTING_WRITE_ENABLED")),
+        "bridge_routing_write_armed": _truthy(os.getenv("PLATFORM_BRIDGE_ROUTING_WRITE_ARMED")),
+        "bridge_admin_token_configured": bool(str(os.getenv("PLATFORM_BRIDGE_ADMIN_TOKEN") or "").strip()),
+        "required_transport_design_confirmation_phrase": REQUIRED_TRANSPORT_CONFIRMATION,
+        "dry_run_invocation_path_endpoint_available": True,
+        "real_bridge_http_client_implemented": False,
+        "network_transport_implemented": False,
+        "network_transport_enabled": False,
+        "network_transport_armed": False,
+        "network_socket_opened": False,
+        "bridge_http_client_implemented": False,
+        "bridge_post_call_implemented": False,
+        "bridge_post_called": False,
+        "bridge_mutation_performed": False,
+        "platform_db_mutation_performed": False,
+        "lacrm_call_performed": False,
+        "routing_write_endpoint_implemented": False,
+        "live_write_enabled": False,
+    }
+
+
+def load_json_artifact(path: str | Path) -> dict[str, Any]:
+    artifact_path = Path(path)
+    if not artifact_path.exists():
+        raise FileNotFoundError(f"Artifact not found: {artifact_path}")
+    return json.loads(artifact_path.read_text(encoding="utf-8-sig"))
+
+
+def _hash_json(value: Any) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
+def _release_checkpoint_blockers(release_report: dict[str, Any]) -> list[str]:
+    blockers: list[str] = []
+    safety = release_report.get("safety") or {}
+    checkpoint = release_report.get("release_checkpoint") or {}
+
+    expected_false = [
+        "platform_db_mutation_performed",
+        "bridge_mutation_performed",
+        "bridge_post_called",
+        "lacrm_call_performed",
+        "real_bridge_http_client_implemented",
+        "network_transport_implemented",
+        "network_transport_enabled",
+        "network_transport_armed",
+        "network_socket_opened",
+        "bridge_http_client_implemented",
+        "bridge_post_call_implemented",
+        "routing_write_endpoint_implemented",
+        "live_write_enabled",
+    ]
+
+    if safety.get("bridge_routing_network_transport_interface_scaffold_release_checkpoint_only") is not True:
+        blockers.append("source release checkpoint is not marked bridge_routing_network_transport_interface_scaffold_release_checkpoint_only=true")
+
+    for key in expected_false:
+        if safety.get(key) is not False:
+            blockers.append(f"source release checkpoint safety flag {key} is not false")
+
+    future_gate_false = [
+        "can_execute_bridge_write_now",
+        "can_add_network_transport_now",
+        "can_enable_network_transport_now",
+        "can_arm_network_transport_now",
+        "can_open_network_socket_now",
+        "can_add_real_bridge_http_client_now",
+        "can_add_bridge_post_now",
+    ]
+    for key in future_gate_false:
+        if checkpoint.get(key) is not False:
+            blockers.append(f"source release checkpoint {key} must be false")
+
+    for issue in release_report.get("issues") or []:
+        if isinstance(issue, dict) and str(issue.get("severity") or "").lower() == "blocker":
+            blockers.append(f"source release checkpoint blocker: {issue.get('code') or 'unknown'}")
+
+    return blockers
+
+
+def _artifact_keys(release_report: dict[str, Any]) -> set[str]:
+    keys: set[str] = set()
+    for item in release_report.get("artifacts") or []:
+        if isinstance(item, dict) and item.get("key"):
+            keys |= {str(item["key"])}
+    return keys
+
+
+def build_bridge_routing_network_transport_dry_run_invocation_path_preview(
+    *,
+    interface_scaffold_release_checkpoint_path: str | Path,
+    operator_name: str = "",
+    transport_confirmation_phrase: str = "",
+) -> dict[str, Any]:
+    release_report = load_json_artifact(interface_scaffold_release_checkpoint_path)
+    gate = bridge_routing_network_transport_dry_run_invocation_path_status()
+
+    blockers = _release_checkpoint_blockers(release_report)
+
+    if not str(operator_name or "").strip():
+        blockers.append("Operator name is required for future dry-run invocation path review.")
+
+    if transport_confirmation_phrase != REQUIRED_TRANSPORT_CONFIRMATION:
+        blockers.append("Typed transport design confirmation phrase is required for future dry-run invocation path review.")
+
+    required_artifacts = {
+        "network_transport_release_checkpoint",
+        "network_transport_implementation_plan",
+        "interface_scaffold",
+        "interface_scaffold_validation",
+        "interface_scaffold_preflight_matrix",
+        "interface_scaffold_operator_signoff",
+    }
+    missing = sorted(required_artifacts - _artifact_keys(release_report))
+    for key in missing:
+        blockers.append(f"source release checkpoint is missing artifact {key}")
+
+    # Critical invariant for Phase 20 Step 19.
+    blockers.append("Real bridge network transport, socket opening, bridge POST, and bridge mutation are not implemented in Phase 20 Step 19.")
+
+    sample_request = BridgeRoutingDryRunInvocationRequest(
+        phone="+13055550000",
+        mode="dry_run",
+        owner_type="unknown",
+        label="dry-run invocation sample",
+        default_contact_ids=[],
+        notes="No-network invocation sample only.",
+        idempotency_key="phase20-step19-dry-run-invocation-sample",
+    )
+    sample_result = BridgeRoutingDryRunInvocationResult(
+        message="Dry-run invocation path accepted request shape and returned without opening a socket."
+    )
+
+    invocation_path_contract = {
+        "invocation_path_name": "BridgeRoutingNetworkTransportDryRunInvocationPath",
+        "implementation_kind": "dry_run_invocation_path_only",
+        "source_interface": "BridgeRoutingTransportAdapterInterface",
+        "transport_mode": "dry_run_no_network",
+        "request_shape": list(asdict(sample_request).keys()),
+        "result_shape": list(asdict(sample_result).keys()),
+        "execution_behavior": "returns_simulated_result_no_network",
+        "execute_live_behavior": "not_available",
+        "network_transport_implemented": False,
+        "network_transport_enabled": False,
+        "network_transport_armed": False,
+        "network_socket_opened": False,
+        "would_open_socket": False,
+        "would_send_http_request": False,
+        "would_call_bridge": False,
+        "would_mutate_bridge": False,
+        "would_mutate_platform": False,
+        "would_call_lacrm": False,
+        "required_future_gates": [
+            "audit_prerequisite_gate",
+            "rollback_snapshot_gate",
+            "environment_gate_design",
+            "operator_confirmation_gate",
+            "response_capture_design",
+            "future_cutover_packet_prerequisite",
+        ],
+    }
+
+    simulated_invocation = {
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "invocation_contract_hash": _hash_json(invocation_path_contract),
+        "request_hash": _hash_json(asdict(sample_request)),
+        "result_hash": _hash_json(asdict(sample_result)),
+        "status_code": 0,
+        "ok": False,
+        "transport_mode": "dry_run_no_network",
+        "would_open_socket": False,
+        "would_send_http_request": False,
+        "would_call_bridge": False,
+        "would_mutate_bridge": False,
+        "would_mutate_platform": False,
+        "message": sample_result.message,
+    }
+
+    return {
+        "invocation_path_version": ROUTING_BRIDGE_NETWORK_TRANSPORT_DRY_RUN_INVOCATION_PATH_VERSION,
+        "phase": "Phase 20 Step 19",
+        "source_interface_scaffold_release_checkpoint": str(interface_scaffold_release_checkpoint_path),
+        "operator_name": str(operator_name or "").strip(),
+        "preview_only": True,
+        "dry_run": True,
+        "dry_run_invocation_path_only": True,
+        "blocked": True,
+        "would_add_network_transport": False,
+        "would_enable_network_transport": False,
+        "would_arm_network_transport": False,
+        "would_open_socket": False,
+        "would_send_http_request": False,
+        "would_call_bridge": False,
+        "would_mutate_bridge": False,
+        "would_mutate_platform": False,
+        "would_call_lacrm": False,
+        "blockers": blockers,
+        "invocation_path_contract": invocation_path_contract,
+        "invocation_path_contract_hash": _hash_json(invocation_path_contract),
+        "sample_request": asdict(sample_request),
+        "sample_result": asdict(sample_result),
+        "simulated_invocation": simulated_invocation,
+        "gate_status": gate,
+        "safety": {
+            "bridge_routing_network_transport_dry_run_invocation_path_only": True,
+            "platform_db_mutation_performed": False,
+            "bridge_mutation_performed": False,
+            "bridge_post_called": False,
+            "lacrm_call_performed": False,
+            "real_bridge_http_client_implemented": False,
+            "network_transport_implemented": False,
+            "network_transport_enabled": False,
+            "network_transport_armed": False,
+            "network_socket_opened": False,
+            "bridge_http_client_implemented": False,
+            "bridge_post_call_implemented": False,
+            "routing_write_endpoint_implemented": False,
+            "live_write_enabled": False,
+        },
+    }
+
+

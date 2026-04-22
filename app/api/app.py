@@ -26,6 +26,7 @@ from app.api.routes.routing_bridge_http_client_dry_run import router as routing_
 from app.api.routes.routing_bridge_network_transport_guard import router as routing_bridge_network_transport_guard_router
 from app.api.routes.routing_bridge_network_transport_dry_run_adapter import router as routing_bridge_network_transport_dry_run_adapter_router
 from app.api.routes.routing_bridge_network_transport_interface_scaffold import router as routing_bridge_network_transport_interface_scaffold_router
+from app.api.routes.routing_bridge_network_transport_dry_run_invocation_path import router as routing_bridge_network_transport_dry_run_invocation_path_router
 from app.api.routes.freshbooks_oauth import router as freshbooks_oauth_router
 from app.api.routes.health import router as health_router
 from app.api.routes.quote_workflow import router as quote_workflow_router
@@ -62,6 +63,7 @@ app.include_router(routing_bridge_http_client_dry_run_router)
 app.include_router(routing_bridge_network_transport_guard_router)
 app.include_router(routing_bridge_network_transport_dry_run_adapter_router)
 app.include_router(routing_bridge_network_transport_interface_scaffold_router)
+app.include_router(routing_bridge_network_transport_dry_run_invocation_path_router)
 app.include_router(freshbooks_oauth_router)
 app.include_router(quote_workflow_router)
 app.include_router(heater_quotes_router)
@@ -91,6 +93,9 @@ def front_page():
     if dashboard.exists():
         return FileResponse(dashboard)
     return {'message': APP_NAME}
+
+
+
 
 
 
