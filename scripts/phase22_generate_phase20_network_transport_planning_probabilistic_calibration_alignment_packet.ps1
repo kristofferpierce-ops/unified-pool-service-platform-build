@@ -245,14 +245,14 @@ function Invoke-SmokeTest([string]$Root) {
         ("Tcp" + "Client"),
         ("Http" + "Client"),
         ("requests" + ".post"),
-        "lacrm_live_write=true",
-        "implementation_phase_start=true",
-        "authorization_record_creation=true",
-        "operator_signoff_creation=true",
-        "final_approval_creation=true",
-        "design_closure_record_creation=true",
-        "recommendation_engine_execution enabled",
-        "bayesian_update_execution enabled"
+        ("lacrm_live_write" + "=true"),
+        ("implementation_phase_start" + "=true"),
+        ("authorization_record_creation" + "=true"),
+        ("operator_signoff_creation" + "=true"),
+        ("final_approval_creation" + "=true"),
+        ("design_closure_record_creation" + "=true"),
+        ("recommendation_engine_execution" + " enabled"),
+        ("bayesian_update_execution" + " enabled")
     )
 
     foreach ($Token in $Forbidden) {
