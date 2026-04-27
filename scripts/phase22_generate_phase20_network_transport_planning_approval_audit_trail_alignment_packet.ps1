@@ -1,0 +1,503 @@
+param(
+    [string]$RepoRoot = "",
+    [ValidateSet("menu", "status", "apply", "smoke", "packet", "all")]
+    [string]$Action = "menu"
+)
+
+$ErrorActionPreference = "Stop"
+
+$Phase = 22
+$Step = 32
+$StepTitle = "Phase 22 Step 32 - Phase 20 Network Transport Planning Approval Audit Trail Alignment Packet"
+$ExpectedBranch = "phase22-step32-phase20-network-transport-planning-approval-audit-trail-alignment-packet"
+$PriorCompletedStep = "Phase 22 Step 31 - Phase 20 Network Transport Planning Human Review Approval Gate Alignment Packet"
+
+$SafetyPosture = [ordered]@{
+    planning_only = $true
+    no_platform_db_mutation = $true
+    no_bridge_mutation = $true
+    no_real_bridge_http_client = $true
+    no_network_transport_implementation = $true
+    no_bridge_post = $true
+    no_network_sockets = $true
+    no_execution_implementation = $true
+    implementation_phase_start = $false
+    authorization_record_creation = $false
+    operator_signoff_creation = $false
+    operator_approval_creation = $false
+    final_approval_creation = $false
+    design_closure_record_creation = $false
+    no_operator_signoff = $true
+    no_operator_approval = $true
+    no_final_approval = $true
+    no_design_closure_record_creation = $true
+    lacrm_default_mode = "dry_run"
+    lacrm_live_write = $false
+    live_write_disabled = $true
+    live_write_unarmed = $true
+    source_bucket_writes = $false
+    canonical_event_ledger_writes = $false
+    expected_actual_engine_runtime = $false
+    driver_attribution_runtime = $false
+    probabilistic_calibration_runtime = $false
+    pattern_detection_runtime = $false
+    anomaly_detection_runtime = $false
+    recommendation_engine_runtime = $false
+    recommendation_decision_application = $false
+    recommendation_writeback_runtime = $false
+    decision_boundary_governance_runtime = $false
+    human_review_approval_gate_runtime = $false
+    human_review_record_creation = $false
+    approval_gate_record_creation = $false
+    approval_audit_trail_runtime = $false
+    audit_trail_record_creation = $false
+    approval_decision_record_creation = $false
+    evidence_snapshot_record_creation = $false
+    applied_layer_mutation = $false
+    decision_auto_apply_runtime = $false
+    approval_gate_runtime = $false
+    policy_enforcement_runtime = $false
+}
+
+$StepFiles = @(
+    [ordered]@{
+        relative_path = "scripts\phase22_generate_phase20_network_transport_planning_approval_audit_trail_alignment_packet.ps1"
+        description = "Phase 22 Step 32 path-safe planning launcher"
+    },
+    [ordered]@{
+        relative_path = "ui\pages\138_Phase20_Network_Transport_Planning_Approval_Audit_Trail_Alignment_Packet.py"
+        description = "Streamlit planning page for approval audit trail alignment"
+    },
+    [ordered]@{
+        relative_path = "docs\PHASE22_STEP32_PHASE20_NETWORK_TRANSPORT_PLANNING_APPROVAL_AUDIT_TRAIL_ALIGNMENT_PACKET.md"
+        description = "Planning documentation for approval audit trail alignment"
+    },
+    [ordered]@{
+        relative_path = "tests\test_phase22_phase20_network_transport_planning_approval_audit_trail_alignment_packet.py"
+        description = "Planning-only pytest coverage for Phase 22 Step 32"
+    }
+)
+
+function Remove-ControlCharacters {
+    param([string]$Value)
+
+    if ($null -eq $Value) {
+        return ""
+    }
+
+    return -join ($Value.ToCharArray() | Where-Object {
+        $code = [int][char]$_
+        ($code -eq 9) -or ($code -eq 10) -or ($code -eq 13) -or ($code -ge 32)
+    })
+}
+
+function Test-LiteralPathSafe {
+    param([string]$PathValue)
+
+    $Clean = Remove-ControlCharacters $PathValue
+    if ([string]::IsNullOrWhiteSpace($Clean)) {
+        return $false
+    }
+
+    try {
+        return Test-Path -LiteralPath $Clean
+    }
+    catch {
+        return $false
+    }
+}
+
+function Get-FullPathSafe {
+    param([string]$PathValue)
+
+    $Clean = Remove-ControlCharacters $PathValue
+    return [System.IO.Path]::GetFullPath($Clean)
+}
+
+function Join-PathSafe {
+    param(
+        [string]$BasePath,
+        [string]$ChildPath
+    )
+
+    $CleanBase = Remove-ControlCharacters $BasePath
+    $CleanChild = Remove-ControlCharacters $ChildPath
+    return Join-Path -Path $CleanBase -ChildPath $CleanChild
+}
+
+function Resolve-RepoRoot {
+    param([string]$RequestedRoot)
+
+    $Candidates = New-Object System.Collections.Generic.List[string]
+
+    if (-not [string]::IsNullOrWhiteSpace($RequestedRoot)) {
+        [void]$Candidates.Add((Remove-ControlCharacters $RequestedRoot))
+    }
+
+    [void]$Candidates.Add((Get-Location).Path)
+
+    if ($PSScriptRoot) {
+        [void]$Candidates.Add((Resolve-Path -LiteralPath (Join-PathSafe $PSScriptRoot "..")).Path)
+    }
+
+    foreach ($Candidate in $Candidates) {
+        if ([string]::IsNullOrWhiteSpace($Candidate)) {
+            continue
+        }
+
+        $Full = Get-FullPathSafe $Candidate
+        $GitPath = Join-PathSafe $Full ".git"
+        if (Test-LiteralPathSafe $GitPath) {
+            return $Full
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($RequestedRoot)) {
+        $RequestedFull = Get-FullPathSafe $RequestedRoot
+        if (Test-LiteralPathSafe $RequestedFull) {
+            return $RequestedFull
+        }
+    }
+
+    return (Get-Location).Path
+}
+
+function Resolve-SourceRoot {
+    param([string]$ResolvedRepoRoot)
+
+    if ($PSScriptRoot) {
+        $ScriptParent = (Resolve-Path -LiteralPath (Join-PathSafe $PSScriptRoot "..")).Path
+        $DocPath = Join-PathSafe $ScriptParent "docs\PHASE22_STEP32_PHASE20_NETWORK_TRANSPORT_PLANNING_APPROVAL_AUDIT_TRAIL_ALIGNMENT_PACKET.md"
+        if (Test-LiteralPathSafe $DocPath) {
+            return $ScriptParent
+        }
+    }
+
+    $RepoDocPath = Join-PathSafe $ResolvedRepoRoot "docs\PHASE22_STEP32_PHASE20_NETWORK_TRANSPORT_PLANNING_APPROVAL_AUDIT_TRAIL_ALIGNMENT_PACKET.md"
+    if (Test-LiteralPathSafe $RepoDocPath) {
+        return $ResolvedRepoRoot
+    }
+
+    return $ResolvedRepoRoot
+}
+
+function Write-StepHeader {
+    Write-Host ("=" * 78)
+    Write-Host $StepTitle
+    Write-Host ("=" * 78)
+}
+
+function Show-Status {
+    param([string]$ResolvedRepoRoot)
+
+    Write-StepHeader
+    Write-Host "Repo root: $ResolvedRepoRoot"
+    Write-Host "Expected branch: $ExpectedBranch"
+    Write-Host "Prior completed step: $PriorCompletedStep"
+    Write-Host "Optimized launcher actions: -Action status, apply, smoke, packet, all"
+    Write-Host ""
+    Write-Host "Safety posture"
+    foreach ($Key in $SafetyPosture.Keys) {
+        Write-Host ("  {0}: {1}" -f $Key, $SafetyPosture[$Key])
+    }
+
+    Write-Host ""
+    Write-Host "Step files"
+    foreach ($File in $StepFiles) {
+        $TargetPath = Join-PathSafe $ResolvedRepoRoot $File.relative_path
+        if (Test-LiteralPathSafe $TargetPath) {
+            Write-Host ("  PRESENT {0}" -f $File.relative_path)
+        }
+        else {
+            Write-Host ("  MISSING {0}" -f $File.relative_path)
+        }
+    }
+}
+
+function Copy-StepFiles {
+    param(
+        [string]$ResolvedRepoRoot,
+        [string]$SourceRoot
+    )
+
+    foreach ($File in $StepFiles) {
+        $SourcePath = Join-PathSafe $SourceRoot $File.relative_path
+        $TargetPath = Join-PathSafe $ResolvedRepoRoot $File.relative_path
+
+        if (-not (Test-LiteralPathSafe $SourcePath)) {
+            if (Test-LiteralPathSafe $TargetPath) {
+                Write-Host ("SKIPPED {0} source missing but target already present." -f $File.relative_path)
+                continue
+            }
+
+            throw "APPLY FAIL: Missing source file $SourcePath"
+        }
+
+        $SourceFull = Get-FullPathSafe $SourcePath
+        $TargetFull = Get-FullPathSafe $TargetPath
+
+        if ([string]::Equals($SourceFull, $TargetFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+            Write-Host ("SKIPPED {0} source and target are the same file." -f $File.relative_path)
+            continue
+        }
+
+        $TargetDirectory = Split-Path -Parent $TargetFull
+        if (-not (Test-LiteralPathSafe $TargetDirectory)) {
+            New-Item -ItemType Directory -Path $TargetDirectory -Force | Out-Null
+        }
+
+        Copy-Item -LiteralPath $SourceFull -Destination $TargetFull -Force
+        Write-Host ("COPIED {0}" -f $File.relative_path)
+    }
+
+    Write-Host "APPLY PASS: Phase 22 Step 32 files copied or already present."
+}
+
+function Test-StepSmoke {
+    param([string]$ResolvedRepoRoot)
+
+    foreach ($File in $StepFiles) {
+        $TargetPath = Join-PathSafe $ResolvedRepoRoot $File.relative_path
+        if (-not (Test-LiteralPathSafe $TargetPath)) {
+            throw "SMOKE TEST FAIL: Missing $($File.relative_path)"
+        }
+    }
+
+    $ForbiddenTokenParts = @(
+        @("planning", "_", "only", "=", "false"),
+        @("lacrm", "_", "live", "_", "write", "=", "true"),
+        @("live", "_", "write", "_", "disabled", "=", "false"),
+        @("live", "_", "write", "_", "unarmed", "=", "false"),
+        @("implementation", "_", "phase", "_", "start", "=", "true"),
+        @("authorization", "_", "record", "_", "creation", "=", "true"),
+        @("operator", "_", "signoff", "_", "creation", "=", "true"),
+        @("operator", "_", "approval", "_", "creation", "=", "true"),
+        @("final", "_", "approval", "_", "creation", "=", "true"),
+        @("design", "_", "closure", "_", "record", "_", "creation", "=", "true"),
+        @("requests", ".", "post"),
+        @("urllib", ".", "request"),
+        @("http", ".", "client"),
+        @("socket", ".", "create", "_", "connection"),
+        @("Fast", "API", "("),
+        @("uvicorn", ".", "run")
+    )
+
+    foreach ($File in $StepFiles) {
+        $TargetPath = Join-PathSafe $ResolvedRepoRoot $File.relative_path
+        $Text = Get-Content -LiteralPath $TargetPath -Raw
+        $LowerText = $Text.ToLowerInvariant()
+
+        foreach ($Parts in $ForbiddenTokenParts) {
+            $Token = (($Parts -join "")).ToLowerInvariant()
+            if ($LowerText.Contains($Token)) {
+                throw "SMOKE TEST FAIL: Forbidden token found in $($File.relative_path): $Token"
+            }
+        }
+    }
+
+    Write-Host "SMOKE TEST PASS: Phase 22 Step 32 Phase 20 Network Transport Planning Approval Audit Trail Alignment Packet is present and planning-only."
+}
+
+function New-StepPacket {
+    param([string]$ResolvedRepoRoot)
+
+    $Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+    $OutputDirectory = Join-PathSafe $ResolvedRepoRoot "backups\phase22_phase20_network_transport_planning_approval_audit_trail_alignment_packet_$Timestamp"
+    if (-not (Test-LiteralPathSafe $OutputDirectory)) {
+        New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
+    }
+
+    $PacketPath = Join-PathSafe $OutputDirectory "phase22_phase20_network_transport_planning_approval_audit_trail_alignment_packet.json"
+
+    $Packet = [ordered]@{
+        packet_id = "phase22_step32_phase20_network_transport_planning_approval_audit_trail_alignment_packet"
+        phase = 22
+        step = 32
+        title = $StepTitle
+        prior_completed_step = $PriorCompletedStep
+        expected_branch = $ExpectedBranch
+        generated_at = (Get-Date).ToString("o")
+        safety_posture = $SafetyPosture
+        planning_alignment = [ordered]@{
+            connector_first_operating_core = $true
+            source_bucket_alignment = "raw_normalized_matched_approved_applied"
+            canonical_event_ledger_dependency = "planned_reference_only"
+            expected_actual_variance_dependency = "planned_reference_only"
+            driver_attribution_dependency = "planned_reference_only"
+            probabilistic_calibration_dependency = "planned_reference_only"
+            pattern_detection_dependency = "planned_reference_only"
+            recommendation_engine_dependency = "planned_reference_only"
+            decision_boundary_governance_dependency = "planned_reference_only"
+            human_review_approval_gate_dependency = "planned_reference_only"
+            approval_audit_trail_stage = "planning_alignment_only"
+            approval_audit_trail_runtime = $false
+            audit_trail_record_creation = $false
+            approval_decision_record_creation = $false
+            evidence_snapshot_record_creation = $false
+            immutable_audit_log_required = $true
+            append_only_audit_event_policy_required = $true
+            reviewer_identity_required = $true
+            approval_decision_required = $true
+            veto_reason_required = $true
+            evidence_snapshot_required = $true
+            rollback_reference_required = $true
+            source_provenance_required = $true
+            model_version_required = $true
+            branch_overlay_required = $true
+            applied_layer_mutation = $false
+            bridge_absorption_target = "connector_package_not_separate_product"
+            bridge_route_surface_preserved = $true
+            shared_database_merge_authorized = $false
+            runtime_execution_authorized = $false
+            implementation_phase_start = "not_started"
+        }
+        governance_scope = [ordered]@{
+            audit_event_schema = "planned_only"
+            reviewer_identity_capture = "planned_only"
+            decision_reason_catalog = "planned_only"
+            evidence_snapshot_shape = "planned_only"
+            model_version_snapshot = "planned_only"
+            source_provenance_snapshot = "planned_only"
+            branch_overlay_snapshot = "planned_only"
+            rollback_reference_shape = "planned_only"
+            append_only_audit_policy = "planned_only"
+            tamper_evidence_policy = "planned_only"
+            export_review_policy = "planned_only"
+            retention_policy = "planned_only"
+            applied_decision_provenance = "planned_only"
+        }
+        non_actions = @(
+            "no platform DB mutation",
+            "no bridge DB mutation",
+            "no bridge POST",
+            "no network sockets",
+            "no real bridge HTTP client",
+            "no LACRM live write",
+            "no source bucket writes",
+            "no event ledger writes",
+            "no recommendation engine runtime",
+            "no recommendation writeback runtime",
+            "no recommendation decision application",
+            "no human review approval gate runtime",
+            "no approval gate runtime",
+            "no approval audit trail runtime",
+            "no audit trail record creation",
+            "no approval decision record creation",
+            "no evidence snapshot record creation",
+            "no applied layer mutation",
+            "no policy enforcement runtime",
+            "no automatic decision application",
+            "no implementation phase start",
+            "no operator signoff creation",
+            "no operator approval creation",
+            "no final approval creation",
+            "no design closure record creation"
+        )
+        files = $StepFiles
+    }
+
+    $Packet | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $PacketPath -Encoding UTF8
+
+    Write-Host "PASS: planning_only=true"
+    Write-Host "PASS: no_real_bridge_http_client=true"
+    Write-Host "PASS: no_network_transport_implementation=true"
+    Write-Host "PASS: no_bridge_post=true"
+    Write-Host "PASS: no_network_sockets=true"
+    Write-Host "PASS: lacrm_default_mode=dry_run"
+    Write-Host "PASS: live_write_disabled=true"
+    Write-Host "PASS: live_write_unarmed=true"
+    Write-Host "PASS: decision_boundary_governance_runtime=false"
+    Write-Host "PASS: human_review_approval_gate_runtime=false"
+    Write-Host "PASS: recommendation_engine_runtime=false"
+    Write-Host "PASS: recommendation_writeback_runtime=false"
+    Write-Host "PASS: recommendation_decision_application=false"
+    Write-Host "PASS: approval_audit_trail_runtime=false"
+    Write-Host "PASS: audit_trail_record_creation=false"
+    Write-Host "PASS: approval_decision_record_creation=false"
+    Write-Host "PASS: evidence_snapshot_record_creation=false"
+    Write-Host "PASS: applied_layer_mutation=false"
+    Write-Host "PASS: decision_auto_apply_runtime=false"
+    Write-Host "PASS: approval_gate_runtime=false"
+    Write-Host "PASS: policy_enforcement_runtime=false"
+    Write-Host "CHECK: approval_audit_trail_stage=planning_alignment_only"
+    Write-Host "CHECK: immutable_audit_log_required=true"
+    Write-Host "CHECK: append_only_audit_event_policy_required=true"
+    Write-Host "CHECK: reviewer_identity_required=true"
+    Write-Host "CHECK: approval_decision_required=true"
+    Write-Host "CHECK: evidence_snapshot_required=true"
+    Write-Host "CHECK: rollback_reference_required=true"
+    Write-Host "CHECK: source_provenance_required=true"
+    Write-Host "CHECK: model_version_required=true"
+    Write-Host "CHECK: source_bucket_alignment=raw_normalized_matched_approved_applied"
+    Write-Host "CHECK: bridge_absorption_target=connector_package_not_separate_product"
+    Write-Host "CHECK: packet_json=$PacketPath"
+}
+
+function Show-ServerPlaceholder {
+    Write-Host "CHECK: Server startup is intentionally disabled in this planning-only step."
+    Write-Host "CHECK: No FastAPI, Streamlit, bridge server, ngrok tunnel, or network socket is started here."
+    Write-Host "CHECK: Approval audit trail alignment is planning-only and performs no record creation or applied-layer mutation."
+}
+
+function Invoke-Action {
+    param(
+        [string]$RequestedAction,
+        [string]$ResolvedRepoRoot,
+        [string]$SourceRoot
+    )
+
+    switch ($RequestedAction) {
+        "status" { Show-Status -ResolvedRepoRoot $ResolvedRepoRoot }
+        "apply" { Copy-StepFiles -ResolvedRepoRoot $ResolvedRepoRoot -SourceRoot $SourceRoot }
+        "smoke" { Test-StepSmoke -ResolvedRepoRoot $ResolvedRepoRoot }
+        "packet" { New-StepPacket -ResolvedRepoRoot $ResolvedRepoRoot }
+        "all" {
+            Show-Status -ResolvedRepoRoot $ResolvedRepoRoot
+            Copy-StepFiles -ResolvedRepoRoot $ResolvedRepoRoot -SourceRoot $SourceRoot
+            Test-StepSmoke -ResolvedRepoRoot $ResolvedRepoRoot
+            New-StepPacket -ResolvedRepoRoot $ResolvedRepoRoot
+        }
+        default { throw "Unsupported action: $RequestedAction" }
+    }
+}
+
+function Show-Menu {
+    param(
+        [string]$ResolvedRepoRoot,
+        [string]$SourceRoot
+    )
+
+    while ($true) {
+        Write-Host ""
+        Write-Host "Phase 22 Step 32 menu"
+        Write-Host "1. Show status / verify paths"
+        Write-Host "2. Apply Phase 22 Step 32 Phase 20 Network Transport Planning Approval Audit Trail Alignment Packet files"
+        Write-Host "3. Smoke test Phase 22 Step 32"
+        Write-Host "4. Show server start placeholder only"
+        Write-Host "5. Generate Phase 20 network transport planning approval audit trail alignment packet"
+        Write-Host "6. Exit"
+
+        $ChoiceRaw = Read-Host "Choose 1-6"
+        $Choice = (Remove-ControlCharacters $ChoiceRaw).Trim()
+
+        switch ($Choice) {
+            "1" { Show-Status -ResolvedRepoRoot $ResolvedRepoRoot }
+            "2" { Copy-StepFiles -ResolvedRepoRoot $ResolvedRepoRoot -SourceRoot $SourceRoot }
+            "3" { Test-StepSmoke -ResolvedRepoRoot $ResolvedRepoRoot }
+            "4" { Show-ServerPlaceholder }
+            "5" { New-StepPacket -ResolvedRepoRoot $ResolvedRepoRoot }
+            "6" { return }
+            default { Write-Host "Please choose a number from 1 through 6." }
+        }
+    }
+}
+
+$ResolvedRepoRoot = Resolve-RepoRoot -RequestedRoot $RepoRoot
+$SourceRoot = Resolve-SourceRoot -ResolvedRepoRoot $ResolvedRepoRoot
+
+if ($Action -eq "menu") {
+    Show-Menu -ResolvedRepoRoot $ResolvedRepoRoot -SourceRoot $SourceRoot
+}
+else {
+    Invoke-Action -RequestedAction $Action -ResolvedRepoRoot $ResolvedRepoRoot -SourceRoot $SourceRoot
+}
