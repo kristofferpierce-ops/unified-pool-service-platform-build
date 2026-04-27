@@ -122,7 +122,7 @@ function Get-SafetyPosture {
         no_operator_signoff = $true
         no_operator_approval = $true
         no_final_approval = $true
-        no_design_closure_record_creation = $true
+        "no_design_closure_record_creation" = $true
         lacrm_default_mode = "dry_run"
         lacrm_live_write = $false
         live_write_disabled = $true
@@ -317,5 +317,6 @@ switch ($Action) {
     "all" { Show-Status; Invoke-Apply; Invoke-Smoke; Invoke-Packet }
     default { Show-Menu }
 }
+
 
 
