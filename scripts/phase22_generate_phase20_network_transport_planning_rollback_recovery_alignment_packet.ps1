@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$RepoRoot = "",
     [ValidateSet("menu", "status", "apply", "smoke", "packet", "all", "exit")]
     [string]$Action = "menu"
@@ -233,7 +233,7 @@ function Test-Smoke {
         $Text = Get-Content -LiteralPath $PathValue -Raw
         foreach ($Token in $ForbiddenTokens) {
             if ($Text.Contains($Token)) {
-                throw "SMOKE TEST FAIL: Forbidden token found in $RelativePath: $Token"
+                throw "SMOKE TEST FAIL: Forbidden token found in ${RelativePath}: $Token"
             }
         }
     }
@@ -374,3 +374,4 @@ while ($true) {
         default { Write-Host "Invalid choice. Choose 1 through 7." }
     }
 }
+
