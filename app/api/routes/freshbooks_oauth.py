@@ -24,13 +24,15 @@ TOKEN_URL = "https://api.freshbooks.com/auth/oauth/token"
 IDENTITY_URL = "https://api.freshbooks.com/auth/api/v1/users/me"
 
 DEFAULT_SCOPES = [
+    # The 'KPS internal Uni-CoreSync' app uses the user:-prefixed scope format and
+    # now has user:invoices:read enabled. No payments scope on the app (not needed:
+    # invoices carry amount + v3_status inline).
     "user:profile:read",
     "user:clients:read",
     "user:clients:write",
     "user:estimates:read",
     "user:estimates:write",
     "user:invoices:read",
-    "user:payments:read",
 ]
 
 

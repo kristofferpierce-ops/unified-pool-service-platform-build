@@ -287,6 +287,9 @@ DEFAULT_DEV_ITEMS = [
     ('idea', 'P2', 'Connectors', 'proposed', 'Outbound RingCentral client',
      'Add a RingCentral API client so the platform can send SMS and place calls, closing the comms loop (currently inbound-only).',
      'Code review: services'),
+    ('idea', 'P3', 'Connectors', 'done', 'Give the pool platform its own FreshBooks OAuth app',
+     'DONE 2026-06-30: the platform uses its OWN dedicated FreshBooks app "KPS internal Uni-CoreSync" (client_id 6183c3...) with user:invoices:read enabled -- no coupling to Lumen. The brief Lumen-app borrow was reverted (override removed from Launch API.bat). Scopes for this app use the user:-prefixed format: user:profile/clients/estimates + user:invoices:read.',
+     'Go-live'),
     # Data model / quality
     ('idea', 'P1', 'Data Model', 'proposed', 'Add FKs, enums, and timezone-aware timestamps',
      'Add foreign_key= to parent links, str-backed Enums (or CHECK constraints) for recurring status fields, and standardize on datetime.now(UTC). Removes a whole class of silent data bugs.',

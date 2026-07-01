@@ -241,17 +241,24 @@ def get_refreshed_freshbooks_client(account_id: str | None = None, api_base_url:
     return FreshBooksClient(access_token=access_token, account_id=resolved_account_id, api_base_url=resolved_base_url)
 
 
+def freshbooks_has_stored_token() -> bool:
+    """True if an OAuth token has been saved by the callback flow (file-based)."""
+    return bool(_load_token_store().get('access_token'))
+
+
 def get_freshbooks_connection_status(sync_mode: str = 'dry_run') -> dict[str, Any]:
-    client = get_freshbooks_client()
-    has_token = client is not None
-    account_id = (os.getenv('FRESHBOOKS_ACCOUNT_ID', '') or '').strip()
+    store = _load_token_store()
+    # Configured if we have either an env token or a stored OAuth token (the
+    # OAuth callback saves to the token file, which the live pull refreshes from).
+    has_token = get_freshbooks_client() is not None or bool(store.get('access_token'))
+    account_id = (os.getenv('FRESHBOOKS_ACCOUNT_ID', '') or '').strip() or str(store.get('account_id', '')).strip()
     status = FreshBooksConnectionStatus(
         api_base_url=(os.getenv('FRESHBOOKS_API_BASE_URL', DEFAULT_FRESHBOOKS_API_BASE_URL) or DEFAULT_FRESHBOOKS_API_BASE_URL).strip(),
         auth_mode='oauth2',
         has_access_token=has_token,
         has_account_id=bool(account_id),
-        configured=has_token and bool(account_id),
-        live_write_enabled=sync_mode == 'live' and has_token and bool(account_id),
+        configured=has_token,
+        live_write_enabled=sync_mode == 'live' and has_token,
         sync_mode=sync_mode,
     )
     return asdict(status)
