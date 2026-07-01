@@ -13,8 +13,10 @@ from sqlmodel import Session, select
 from app.core.database import engine
 from app.models.tables import CommercialDelivery, CommercialVendorOrder, Property
 from app.services.commercial import add_delivery_item, add_vendor_order_item, create_delivery, create_vendor_order, direct_delivery_report_dataframe, export_direct_delivery_report_xlsx
+from ui._shared import configure_page, page_header
 
-st.title("Commercial Deliveries")
+configure_page('Commercial Deliveries', icon='🚚')
+page_header('Commercial Deliveries', 'Monthly delivery and property-level billing review for commercial accounts.', icon='🚚')
 
 with Session(engine) as session:
     properties = list(session.exec(select(Property).where(Property.account_type == "commercial")).all())

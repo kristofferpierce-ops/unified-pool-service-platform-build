@@ -20,6 +20,7 @@ from app.models.tables import Account, EquipmentAsset, EstimateRun, EstimateScen
 from app.services.baseline import get_active_model
 from app.services.estimator import EstimateInput, EstimateOutput, calculate_estimate, commercial_breakout_dict, save_estimate_run
 from app.services.estimate_reporting import build_commercial_estimate_context, render_estimate_html, render_estimate_json, render_estimate_pdf
+from ui._shared import configure_page, page_header
 
 REPORT_KEY = 'commercial_estimate_report_context'
 INPUT_KEY = 'commercial_estimate_input'
@@ -101,7 +102,8 @@ def _prefill_value(prefill: dict, key: str, fallback):
     return fallback if value is None else value
 
 
-st.title('Commercial Estimator')
+configure_page('Commercial Estimator', icon='🏢')
+page_header('Commercial Estimator', 'Commercial scenario building and pricing from baseline models + burdened labor.', icon='🏢')
 prefill = st.session_state.get(PREFILL_KEY, {}) or {}
 if prefill:
     st.info('A saved estimate was loaded as a draft. Adjust anything you want, then generate a fresh estimate from it.')

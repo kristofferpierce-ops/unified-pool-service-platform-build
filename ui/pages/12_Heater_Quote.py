@@ -25,8 +25,9 @@ from app.services.heater_quote import (
     serialize_heater_quote_run,
 )
 from app.services.quote_workflow import list_quote_cases
+from ui._shared import configure_page, page_header
 
-st.set_page_config(page_title='Heater Quote Tool', layout='wide')
+configure_page('Heater Quote Tool', icon='🔥')
 
 create_db_and_tables()
 with Session(engine) as session:
@@ -36,7 +37,7 @@ with Session(engine) as session:
     quote_cases = list_quote_cases(session, include_closed=False, limit=250)
     recent_runs = list_heater_quote_runs(session, limit=10)
 
-st.title('Heater Quote Tool')
+page_header('Heater Quote Tool', 'BTU sizing, equipment ranking, and heater package quoting.', icon='🔥')
 st.caption('Size the heating requirement, review recommended equipment, and attach the chosen heater recommendation to a quote case without rebuilding the rest of the platform.')
 
 summary_a, summary_b, summary_c, summary_d = st.columns(4)

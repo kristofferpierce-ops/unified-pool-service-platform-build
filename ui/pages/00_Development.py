@@ -20,7 +20,7 @@ configure_page('Development Tracker', icon='🧱')
 
 # Current build stamp (bump when a new batch of work ships). Modeled on Lumen's
 # DEV_VERSION: every changelog entry is tagged with the build it shipped in.
-DEV_BUILD = '2026.06.30-l'
+DEV_BUILD = '2026.06.30-m'
 
 # --------------------------------------------------------------------------
 # Vocabularies
@@ -370,6 +370,9 @@ DEFAULT_LOG_ENTRIES = [
     # ---- Build 2026.06.30-l : foundation hardening batch ----------------
     ('2026.06.30-l', 'infra', 'Foundation', 'SQLite WAL hardening + CI + core-page UI polish',
      'Low-input foundation batch. app/core/database.py now applies PRAGMA journal_mode=WAL + busy_timeout=5000 + foreign_keys=ON + synchronous=NORMAL on every SQLite connection, so concurrent UI/connector/job writers wait on a lock instead of raising "database is locked" (the most likely production failure mode). Added .github/workflows/tests.yml running pytest on push/PR. Migrated 6 core operational pages (Admin Costs, Accounts & Properties, Invoice Review, Compare & Train, Tools, Estimate Library) to the shared configure_page/page_header theme. 111 tests pass; all touched pages render clean.'),
+    # ---- Build 2026.06.30-m : UI migration batch 2 + collision fix ------
+    ('2026.06.30-m', 'refactor', 'UI', 'UI migration batch 2 + page-number collision fix',
+     'Fixed page-number collisions I introduced: renamed 3 kept front-desk pages (Call_Context, EOD_SMS_Batches, Routing_Rules) from 22-24 to 40-42 so the new analytics pages (Customer Matching / Profitability / Route P&L) own 22-24 cleanly. Migrated 6 more pages to the shared configure_page/page_header theme: Baseline Models, Residential + Commercial Estimator, Commercial Deliveries, Heater Quote, Replaster Quote. All render clean; 111 tests pass. Remaining to migrate: diagnostics (14-17) and routing pages (31-36, 42).'),
 ]
 
 _LOG_COLUMNS = ('build', 'kind', 'area', 'title', 'summary')

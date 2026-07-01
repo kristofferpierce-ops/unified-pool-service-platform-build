@@ -14,8 +14,10 @@ from app.core.database import engine
 from app.models.tables import EstimateScenario, PoolVessel, Property
 from app.services.baseline import get_active_model
 from app.services.estimator import EstimateInput, calculate_estimate, save_estimate_run
+from ui._shared import configure_page, page_header
 
-st.title("Residential Estimator")
+configure_page('Residential Estimator', icon='🏠')
+page_header('Residential Estimator', 'Data-driven residential service pricing from baseline coefficients + burdened labor.', icon='🏠')
 
 with Session(engine) as session:
     properties = list(session.exec(select(Property).where(Property.account_type == "residential")).all())

@@ -13,8 +13,10 @@ from sqlmodel import Session, select
 from app.core.database import engine
 from app.models.tables import BaselineModelVersion, ClimateProfile, WaterProfile
 from app.utils.serialization import loads
+from ui._shared import configure_page, page_header
 
-st.title("Baseline Models")
+configure_page('Baseline Models', icon='📐')
+page_header('Baseline Models', 'Versioned pricing coefficients and climate/water profiles that drive the estimators.', icon='📐')
 
 with Session(engine) as session:
     climates = list(session.exec(select(ClimateProfile)).all())
