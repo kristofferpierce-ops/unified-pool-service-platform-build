@@ -19,3 +19,4 @@ backups/
 data/*.db
 *.db-shm
 *.db-wal
+ui/_KPS_TEMP_STREAMLIT_HOME_DO_NOT_COMMIT.py
