@@ -113,6 +113,23 @@ def test_live_freshbooks_pull_normalizes_and_lands():
     assert result.documents_created == 1
 
 
+def test_revenue_composition_by_status():
+    from app.services.profitability import revenue_composition
+    with _session() as s:
+        sync_freshbooks_invoices(s, invoices=FIXTURE_INVOICES)
+        comp = revenue_composition(s)
+    # Fixtures: inv-9001 paid $180, inv-9002 sent $240, inv-9003 paid $120.
+    assert comp.invoices == 3
+    assert round(comp.total, 2) == 540.0
+    by = {r.status: r for r in comp.rows}
+    assert by['paid'].count == 2 and round(by['paid'].amount, 2) == 300.0
+    assert by['sent'].count == 1 and round(by['sent'].amount, 2) == 240.0
+    assert round(comp.collected, 2) == 300.0     # paid
+    assert round(comp.outstanding, 2) == 240.0    # sent is unpaid
+    assert round(comp.recurring, 2) == 0.0        # no auto-paid in the fixtures
+    assert comp.rows[0].status == 'paid'          # sorted by amount desc
+
+
 def test_profitability_period_filter():
     from datetime import date
     with _session() as s:

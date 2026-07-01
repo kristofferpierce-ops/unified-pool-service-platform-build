@@ -128,3 +128,58 @@ def account_profitability(session: Session, start: date | None = None, end: date
         accounts=rows,
         losers=[r for r in rows if r.profit < 0],
     )
+
+
+# Invoice status buckets (FreshBooks v3_status values).
+_COLLECTED = {'paid', 'auto-paid', 'autopaid', 'deposit-paid'}
+_RECURRING = {'auto-paid', 'autopaid'}
+
+
+@dataclass
+class StatusRow:
+    status: str
+    count: int
+    amount: float
+    pct: float
+
+
+@dataclass
+class RevenueComposition:
+    invoices: int
+    total: float
+    collected: float
+    outstanding: float
+    recurring: float           # auto-paid (recurring autopay)
+    one_off_collected: float   # collected minus recurring
+    rows: list = field(default_factory=list)   # StatusRow, amount desc
+
+
+def revenue_composition(session: Session, start: date | None = None, end: date | None = None) -> RevenueComposition:
+    """Break FreshBooks invoices down by status (paid / auto-paid / sent / ...),
+    scoped to [start, end]. The row table is sortable in the UI by any column."""
+    by_status: dict[str, list] = {}
+    total = 0.0
+    for doc in session.exec(select(BillingDocument).where(BillingDocument.source_slug == 'freshbooks')).all():
+        if not in_range(doc.issued_on, start, end):
+            continue
+        st = (doc.status or '(blank)').lower()
+        bucket = by_status.setdefault(st, [0, 0.0])
+        bucket[0] += 1
+        bucket[1] += doc.total_amount
+        total += doc.total_amount
+
+    rows = [StatusRow(status=st, count=n, amount=amt, pct=(amt / total * 100.0) if total else 0.0)
+            for st, (n, amt) in by_status.items()]
+    rows.sort(key=lambda r: r.amount, reverse=True)
+
+    collected = sum(r.amount for r in rows if r.status in _COLLECTED)
+    recurring = sum(r.amount for r in rows if r.status in _RECURRING)
+    return RevenueComposition(
+        invoices=sum(r.count for r in rows),
+        total=total,
+        collected=collected,
+        outstanding=total - collected,
+        recurring=recurring,
+        one_off_collected=collected - recurring,
+        rows=rows,
+    )

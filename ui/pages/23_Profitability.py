@@ -10,7 +10,7 @@ import streamlit as st
 from ui._shared import configure_page, date_range_selector, db_session, page_header, section
 from app.connectors.freshbooks.client import FreshBooksAPIError, get_freshbooks_connection_status
 from app.services.freshbooks_revenue import sync_freshbooks_invoices
-from app.services.profitability import account_profitability
+from app.services.profitability import account_profitability, revenue_composition
 
 configure_page('Profitability', icon='📈')
 page_header(
@@ -58,6 +58,26 @@ if start or end:
     st.caption(f"Scoped to invoices issued and visits performed "
                f"{start or '(open)'} → {end or '(open)'}.")
 
+# --------------------------------------------------------------------------
+# Revenue composition by invoice status (always available, sortable)
+# --------------------------------------------------------------------------
+with db_session() as session:
+    comp = revenue_composition(session, start, end)
+
+section('Revenue composition', 'By FreshBooks invoice status. Click any column header to sort.')
+rc1, rc2, rc3, rc4 = st.columns(4)
+rc1.metric('Invoices', f'{comp.invoices:,}')
+rc2.metric('Collected', f'${comp.collected:,.0f}', help='paid + auto-paid + deposit-paid')
+rc3.metric('Recurring (auto-paid)', f'${comp.recurring:,.0f}', help='Recurring autopay charges.')
+rc4.metric('Outstanding A/R', f'${comp.outstanding:,.0f}', help='Sent / viewed / overdue — owed to you.')
+if comp.rows:
+    st.dataframe(pd.DataFrame([{
+        'Status': r.status, 'Invoices': r.count, 'Amount': round(r.amount, 2), '% of $': round(r.pct, 1),
+    } for r in comp.rows]), width='stretch', hide_index=True)
+
+# --------------------------------------------------------------------------
+# Per-customer P&L
+# --------------------------------------------------------------------------
 with db_session() as session:
     summary = account_profitability(session, start, end)
 
