@@ -287,6 +287,13 @@ DEFAULT_DEV_ITEMS = [
     ('idea', 'P2', 'Connectors', 'proposed', 'Outbound RingCentral client',
      'Add a RingCentral API client so the platform can send SMS and place calls, closing the comms loop (currently inbound-only).',
      'Code review: services'),
+    ('idea', 'P1', 'Sync', 'proposed', 'Cross-platform outbound sync (unified customer -> CRM / RingCentral / Skimmer / FreshBooks)',
+     'The WRITE-side spine (owner vision 2026-07-01): a canonical customer record propagates OUT so every system stays even without manual re-entry -- e.g. add a customer in the CRM and it auto-creates/updates in RingCentral (for caller ID) + optionally Skimmer + FreshBooks. '
+     'FOUNDATION ALREADY BUILT: CustomerProfile + ExternalIdentityMap + the matching engine give one unified identity, so every push is match-first / create-if-missing (no duplicates) -- the part most integrations fail. '
+     'NEEDED: (1) expand CustomerProfile to the full canonical contact set (name/phone/address/email); (2) outbound write methods per connector -- FreshBooks create_client exists; LACRM contact writes need wiring; Skimmer + RingCentral writes are NEW and need API verification (does Skimmer allow POST customers? RingCentral personal-contacts/address-book API); (3) a propagation orchestrator with per-target "create in X" toggles, match-or-create, and loop prevention; (4) a dry-run/preview -> confirm safety gate on outbound writes. '
+     'OPEN DECISIONS: source of truth (recommend platform = hub, CRM = main human entry), trigger (realtime webhook vs "Sync customer" button vs batch), push-only vs bidirectional, auto vs review. '
+     'SEQUENCING: build AFTER the read side is solid (revenue attribution fixed + Skimmer live), one target at a time, dry-run first (FreshBooks create_client as the first proof).',
+     'Owner vision'),
     ('idea', 'P3', 'Connectors', 'done', 'Give the pool platform its own FreshBooks OAuth app',
      'DONE 2026-06-30: the platform uses its OWN dedicated FreshBooks app "KPS internal Uni-CoreSync" (client_id 6183c3...) with user:invoices:read enabled -- no coupling to Lumen. The brief Lumen-app borrow was reverted (override removed from Launch API.bat). Scopes for this app use the user:-prefixed format: user:profile/clients/estimates + user:invoices:read.',
      'Go-live'),
