@@ -76,18 +76,23 @@ def section(title: str, caption: str | None = None) -> None:
         st.caption(caption)
 
 
-def date_range_selector(key: str, label: str = 'Period') -> tuple[date | None, date | None]:
+def date_range_selector(key: str, label: str = 'Period',
+                        default: str = 'Year to date') -> tuple[date | None, date | None]:
     """A period picker returning (start, end) inclusive dates, or (None, None) for
-    all-time. Presets plus a custom range."""
+    all-time. Presets (7 day / 30 day / YTD first) plus a custom range."""
     today = date.today()
     presets = {
-        'All time': (None, None),
-        'This year': (date(today.year, 1, 1), today),
-        'Last 12 months': (today - timedelta(days=365), today),
+        'Last 7 days': (today - timedelta(days=7), today),
+        'Last 30 days': (today - timedelta(days=30), today),
+        'Year to date': (date(today.year, 1, 1), today),
         'This month': (date(today.year, today.month, 1), today),
+        'Last 12 months': (today - timedelta(days=365), today),
+        'All time': (None, None),
         'Custom…': 'custom',
     }
-    choice = st.selectbox(label, options=list(presets.keys()), key=f'{key}_preset')
+    keys = list(presets.keys())
+    index = keys.index(default) if default in presets else 0
+    choice = st.selectbox(label, options=keys, index=index, key=f'{key}_preset')
     value = presets[choice]
     if value == 'custom':
         c1, c2 = st.columns(2)

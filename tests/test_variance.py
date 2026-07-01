@@ -63,6 +63,17 @@ def test_chemical_variance_expected_vs_actual():
     assert all(v.expected_cost >= 0 and v.actual_cost > 0 for v in summary.visit_rows)
 
 
+def test_labor_variance_period_filter():
+    from datetime import date
+    with _session() as s:
+        sync_skimmer(s, client=SkimmerClient(use_fixtures=True))
+        alltime = labor_variance(s)
+        # Fixture visits are 2026-06-08/09/15; on/after 06-10 keeps only wo-5002 (06-15).
+        scoped = labor_variance(s, start=date(2026, 6, 10))
+    assert alltime.visits_analyzed == 3
+    assert scoped.visits_analyzed == 1
+
+
 def test_chemical_variance_captures_per_property_usage():
     with _session() as s:
         sync_skimmer(s, client=SkimmerClient(use_fixtures=True))

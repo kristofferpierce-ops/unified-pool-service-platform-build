@@ -15,11 +15,14 @@ from dataclasses import dataclass, field
 
 from sqlmodel import Session, select
 
+from datetime import date
+
 from app.models.ops_tables import ActualChemicalFact, ActualLaborFact, ServiceVisit
 from app.models.tables import Account, ChemicalProduct, PoolVessel, Property
 from app.services.cost_of_business import compute_cost_of_business
 from app.services.estimator import EstimateInput, calculate_estimate
 from app.services.expenses import latest_unit_cost
+from app.services.profitability import in_range
 
 OVERRUN_MINUTES = 5.0    # average labor overrun beyond this flags a property
 CHEM_OVERRUN_PCT = 20.0  # average chemical cost this % over expected flags a property
@@ -68,7 +71,7 @@ def _primary_vessel_minutes(session: Session) -> dict[int, float]:
     return out
 
 
-def labor_variance(session: Session) -> VarianceSummary:
+def labor_variance(session: Session, start: date | None = None, end: date | None = None) -> VarianceSummary:
     cost_per_hour = compute_cost_of_business(session).true_cost_per_hour
     expected_minutes = _primary_vessel_minutes(session)
     property_name = {p.id: p.name for p in session.exec(select(Property)).all()}
@@ -77,6 +80,8 @@ def labor_variance(session: Session) -> VarianceSummary:
     visit_rows: list[VisitVariance] = []
     per_prop: dict[int, dict] = {}
     for visit in session.exec(select(ServiceVisit)).all():
+        if not in_range(visit.occurred_at.date() if visit.occurred_at else None, start, end):
+            continue
         lab = labor.get(visit.id)
         if lab is None or visit.property_id not in expected_minutes:
             continue
@@ -184,7 +189,7 @@ def _expected_chem_cost_per_visit(session: Session, prop: Property, vessel: Pool
     return output.monthly_chemical_real_cost / visits_per_month
 
 
-def chemical_variance(session: Session) -> ChemVarianceSummary:
+def chemical_variance(session: Session, start: date | None = None, end: date | None = None) -> ChemVarianceSummary:
     prices = {p.id: latest_unit_cost(session, p) for p in session.exec(select(ChemicalProduct)).all()}
     property_name = {p.id: p.name for p in session.exec(select(Property)).all()}
     properties = {p.id: p for p in session.exec(select(Property)).all()}
@@ -198,6 +203,8 @@ def chemical_variance(session: Session) -> ChemVarianceSummary:
     visit_rows: list[ChemVisitVariance] = []
     per_prop: dict[int, dict] = {}
     for visit in session.exec(select(ServiceVisit)).all():
+        if not in_range(visit.occurred_at.date() if visit.occurred_at else None, start, end):
+            continue
         facts = chem_by_visit.get(visit.id)
         if not facts or visit.property_id not in vessels:
             continue

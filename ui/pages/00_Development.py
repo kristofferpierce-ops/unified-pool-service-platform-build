@@ -20,7 +20,7 @@ configure_page('Development Tracker', icon='🧱')
 
 # Current build stamp (bump when a new batch of work ships). Modeled on Lumen's
 # DEV_VERSION: every changelog entry is tagged with the build it shipped in.
-DEV_BUILD = '2026.06.30-r'
+DEV_BUILD = '2026.06.30-s'
 
 # --------------------------------------------------------------------------
 # Vocabularies
@@ -383,6 +383,8 @@ DEFAULT_LOG_ENTRIES = [
     ('2026.06.30-n', 'shipped', 'Chemistry', 'LSI water-balance chemistry engine + dosing',
      'The core pool-specific differentiator. app/services/chemistry.py computes the Langelier Saturation Index (Taylor/APSP factor method expressed as continuous logs) from pH, temperature, calcium hardness, total alkalinity, TDS, and optional CYA correction; classifies corrosive/balanced/scaling; checks each parameter against ideal ranges; and recommends dosing (industry rates per 10,000 gal) to bring water into balance. New Chemistry page (26): load a property\'s latest reading or enter manually, see LSI + parameter status + dosing, and save the reading to the water-test log. 7 tests lock the math against balanced/corrosive/scaling worked cases (111 -> 118 passing).'),
     # ---- Build 2026.06.30-p : live FreshBooks revenue wiring ------------
+    ('2026.06.30-s', 'shipped', 'Profitability', '7-day / 30-day / YTD ranges + variance period filter',
+     'date_range_selector now leads with Last 7 days / Last 30 days / Year to date (plus This month, Last 12 months, All time, Custom) and defaults to YTD. Extended period filtering to the variance engine (labor_variance + chemical_variance filter visits by occurred_at) and wired the selector into the Variance page. Now the analytics pages -- Profitability, Route P&L, Variance -- all default to a meaningful YTD view with quick 7/30-day toggles. 2 tests added; 123 pass.'),
     ('2026.06.30-r', 'shipped', 'Profitability', 'Date-range filtering on customer + route P&L',
      'account_profitability() and route_pnl() take an optional [start, end] period (shared in_range helper): revenue filtered by invoice issued_on, cost by visit occurred_at, routes by route_date. New shared date_range_selector (All time / This year / Last 12 months / This month / Custom) on the Profitability + Route P&L pages -- so the all-time cumulative revenue can be scoped to a real window (a year, a month). 1 test added; both pages render.'),
     ('2026.06.30-q', 'shipped', 'Identity', 'Matching perf (O(1) repeat resolves) + operational reset + real-data load',

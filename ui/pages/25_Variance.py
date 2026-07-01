@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pandas as pd
 import streamlit as st
 
-from ui._shared import configure_page, db_session, page_header, section
+from ui._shared import configure_page, date_range_selector, db_session, page_header, section
 from app.services.variance import chemical_variance, labor_variance
 
 configure_page('Variance', icon='🎯')
@@ -18,6 +18,11 @@ page_header(
     icon='🎯',
 )
 
+section('Period')
+start, end = date_range_selector('variance')
+if start or end:
+    st.caption(f"Scoped to visits performed {start or '(open)'} → {end or '(open)'}.")
+
 tab_labor, tab_chem = st.tabs(['Labor time', 'Chemical cost'])
 
 # --------------------------------------------------------------------------
@@ -25,7 +30,7 @@ tab_labor, tab_chem = st.tabs(['Labor time', 'Chemical cost'])
 # --------------------------------------------------------------------------
 with tab_labor:
     with db_session() as session:
-        summary = labor_variance(session)
+        summary = labor_variance(session, start, end)
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric('Visits analyzed', summary.visits_analyzed)
@@ -59,7 +64,7 @@ with tab_labor:
 # --------------------------------------------------------------------------
 with tab_chem:
     with db_session() as session:
-        chem = chemical_variance(session)
+        chem = chemical_variance(session, start, end)
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric('Visits analyzed', chem.visits_analyzed)
