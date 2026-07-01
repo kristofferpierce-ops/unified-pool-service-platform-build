@@ -110,14 +110,14 @@ DEFAULT_DEV_ITEMS = [
     ('health', 'P0', 'Security', 'open', 'No authentication or authorization anywhere in the API',
      'Grep confirms zero Depends/Security/middleware/CORS across app/api. Every endpoint is public, including admin/bootstrap (re-seeds the DB) and the live-write sync + OAuth-refresh endpoints. Top risk for any deployment.',
      'Code review: API'),
-    ('health', 'P0', 'Methodology', 'open', 'routing_bridge_* subsystem implements nothing',
-     '~32 route+service files, ~4,444 LOC, 70-80% verbatim-duplicated boilerplate. Every file returns a JSON report attesting that it did nothing. The real safety gate exists once, correctly, in front_desk. Highest-leverage deletion available.',
+    ('health', 'P0', 'Methodology', 'resolved', 'routing_bridge_* subsystem implements nothing',
+     '~32 route+service files, ~4,444 LOC, 70-80% verbatim-duplicated boilerplate. Every file returns a JSON report attesting that it did nothing. The real safety gate exists once, correctly, in front_desk. RESOLVED 2026-06-30: all 32 files archived to archive/ and de-wired from app.py; nothing real was lost (verified: only planning attestations).',
      'Code review: services/API'),
-    ('health', 'P0', 'Methodology', 'open', 'Phase-ladder ceremony dominates the repo',
-     '~8,000 generated files; 2,035 of 2,060 commits are "Phase NN Step NN"; ~99% of test files only assert "file exists / string present"; 1,598 backup folders; ~993 installer scripts. Buries the real product and makes git log/bisect/search useless.',
+    ('health', 'P0', 'Methodology', 'resolved', 'Phase-ladder ceremony dominates the repo',
+     '~8,000 generated files; 2,035 of 2,060 commits are "Phase NN Step NN"; ~99% of test files only assert "file exists / string present"; 1,598 backup folders; ~993 installer scripts. RESOLVED 2026-06-30: ~8,135 ladder files archived to archive/ (pages/tests/scripts/docs); live tree audited to confirm no real code was swept. backups/ gitignored.',
      'Code review: methodology'),
-    ('health', 'P0', 'UI', 'open', '~2,000 auto-generated packet pages pollute the sidebar',
-     'ui/pages holds ~2,046 files; only ~16 are real. The Phase packet pages do not even import app.* -- they print a static safety block. They drown the real pages in the Streamlit nav.',
+    ('health', 'P0', 'UI', 'resolved', '~2,000 auto-generated packet pages pollute the sidebar',
+     'ui/pages held ~2,046 files; only ~26 are real. The Phase packet pages do not even import app.* -- they print a static safety block. RESOLVED 2026-06-30: ui/pages reduced to 26 live feature pages; all bridge/Phase packet pages archived.',
      'Code review: UI'),
     ('health', 'P1', 'Data', 'open', 'SQLite not hardened for concurrency',
      'The engine sets check_same_thread=False but no WAL journal mode, no busy_timeout, no pool. Concurrent webhook writes will hit "database is locked". The most likely production failure mode.',
@@ -173,11 +173,11 @@ DEFAULT_DEV_ITEMS = [
 
     # ---- IDEAS & ROADMAP -------------------------------------------------
     # Foundation / cleanup
-    ('idea', 'P0', 'Methodology', 'proposed', 'Retire the phase ladder; archive artifacts out of the live tree',
-     'Freeze Phase 40+. Move scripts/p*_s*, tests/test_p*_s*, packet docs, and ui/pages/*Phase*Step* into an archive/ branch or delete them. Restores usable git history, search, and bisect. Single highest-impact change.',
+    ('idea', 'P0', 'Methodology', 'done', 'Retire the phase ladder; archive artifacts out of the live tree',
+     'DONE 2026-06-30: froze the ladder and archived ~8,135 generated files (scripts/p*_s*, tests/test_p*_s*, packet docs, ui/pages/*Phase*Step*) to archive/ on branch cleanup/retire-phase-ladder. git history/search/bisect usable again. Fully reversible; nothing real deleted.',
      'Synthesis'),
-    ('idea', 'P0', 'Cleanup', 'proposed', 'Collapse routing_bridge_* to one guarded module + one real client',
-     'Replace ~32 files with one bridge_routing module reusing the existing confirm_live_write gate, plus one real urllib client mirroring lacrm/client.py. Removes ~4,000 LOC of dead weight with no loss of capability.',
+    ('idea', 'P0', 'Cleanup', 'done', 'Collapse routing_bridge_* dead subsystem',
+     'DONE 2026-06-30: archived all 32 routing_bridge_* files and de-wired the 24 import/include lines from app.py (127 routes import clean). The one-guarded-module + real-client replacement is only needed if/when a real bridge write-path is required -- deferred, not lost.',
      'Synthesis'),
     ('idea', 'P0', 'Security', 'proposed', 'Add an API auth layer before any deployment',
      'API-key Depends on all mutating/admin/sync routes; gate admin/bootstrap and live-write hardest. Add signature verification to the RingCentral webhook to match FreshBooks/LACRM.',
@@ -191,10 +191,26 @@ DEFAULT_DEV_ITEMS = [
     ('idea', 'P1', 'API', 'proposed', 'Standardize DB access on Depends(get_session)',
      'Convert get_session to a generator dependency and replace the ~200 inline Session(engine) blocks. Unlocks request-scoped transactions and test overrides.',
      'Code review: API'),
+    # Core architecture: the connector-first Operations Core (this platform IS the source of truth)
+    ('idea', 'P0', 'Architecture', 'proposed', 'Formalize the staged ingestion pipeline (raw -> normalized -> matched -> approved -> applied)',
+     'The platform is its OWN source of truth; every external system is a source bucket flowing through controlled stages. app/services/ingestion.py (237 ln) + invoice_ingestion.py (176 ln) already do a staged version. Generalize it into a reusable engine (stages, idempotency keys, approve-to-apply, audit) so every connector (LACRM/RingCentral/FreshBooks/Skimmer/Heritage) shares one spine. Nothing hits canonical tables without an approved delta.',
+     'Deep-research rollout report'),
+    ('idea', 'P1', 'Intelligence', 'proposed', 'Expected-vs-actual variance + fact-grain engine (the core brain)',
+     'Declare fact grains explicitly (chemical/month, labor/visit, margin/invoice, route/time) and build expected + actual fact tables with a variance engine that emits calibration recommendations WITHOUT overwriting baselines. Compare & Train + calibration.py are the seed of this. This is the platform own intelligence layer -- it does NOT depend on Lumen.',
+     'Deep-research rollout report'),
+    ('idea', 'P1', 'Tools', 'proposed', 'Integrate the pool-volume live tool as a first-class signal generator',
+     'The pool_volume_tool_live_proto (references/legacy_seed) hits live GIS/parcel/imagery/geocoder sources and returns volume with evidence + assumptions + confidence. Adapt it into app/tools/pool_volume/, wire endpoints, and persist runs into raw/normalized/tool_run so volume estimates feed chemistry + estimating.',
+     'Deep-research rollout report'),
+    ('idea', 'P1', 'Connectors', 'proposed', 'Build out the Skimmer ops/dispatch connector (currently a 1-line stub)',
+     'Skimmer is the field-operations spine: Customers, ServiceLocations, BodiesOfWater, WorkOrders, Routes (skimmer-api-key header). client.py is an empty placeholder today. Build ingestion for these so real service visits + routes + actuals flow in and close the expected-vs-actual loop. Supersedes the earlier "finish or remove Skimmer" note.',
+     'Deep-research rollout report'),
+    ('idea', 'P2', 'Data', 'proposed', 'Postgres schema-per-layer (raw/norm/match/approve/core/fact/audit)',
+     'When the Postgres move happens, use a schema-per-layer model in one modular monolith DB, with JSONB for raw payload retention and idempotency + optional outbox as reliability primitives. Enforces the raw->applied contract at the DB boundary.',
+     'Deep-research rollout report'),
     # Product features (market-benchmarked)
-    ('idea', 'P1', 'Chemistry', 'proposed', 'LSI water-balance & chemical-dosing engine',
-     'Add a Langelier Saturation Index calc (pH, temp, calcium hardness, alkalinity, CYA, TDS) with auto dosing recommendations and out-of-range alerts. This is THE feature that separates pool-specific software from generic field-service tools in 2026.',
-     'Market research'),
+    ('idea', 'P1', 'Chemistry', 'proposed', 'Port the Key West deterministic chemistry model into versioned code',
+     'The Key West consumption-coefficients workbook (monthly climate + rain dilution + dosing rules) already exists under references/legacy_seed and is validated. Port it into app/intelligence/chemistry_keywest.py as a VERSIONED module with the workbook as a regression oracle. This is a port of proven logic, NOT a greenfield feature. Layer an LSI water-balance calc (pH, temp, calcium hardness, alkalinity, CYA, TDS) + dosing recommendations on top. The core product differentiator vs generic field-service tools.',
+     'Deep-research rollout report'),
     ('idea', 'P1', 'Operations', 'proposed', 'Route optimization & scheduling',
      'GPS-aware route building to maximize pools serviced per day. Notably, market leader Skimmer lacks this, so it is a real differentiation opportunity. Pairs with job-duration modeling.',
      'Market research'),
@@ -230,9 +246,6 @@ DEFAULT_DEV_ITEMS = [
     ('idea', 'P2', 'Connectors', 'proposed', 'Outbound RingCentral client',
      'Add a RingCentral API client so the platform can send SMS and place calls, closing the comms loop (currently inbound-only).',
      'Code review: services'),
-    ('idea', 'P2', 'Connectors', 'proposed', 'Finish or remove the Skimmer connector',
-     'Either implement the Skimmer client or drop it from default source systems so it stops implying a capability that is not there.',
-     'Code review: services'),
     # Data model / quality
     ('idea', 'P1', 'Data Model', 'proposed', 'Add FKs, enums, and timezone-aware timestamps',
      'Add foreign_key= to parent links, str-backed Enums (or CHECK constraints) for recurring status fields, and standardize on datetime.now(UTC). Removes a whole class of silent data bugs.',
@@ -247,30 +260,24 @@ DEFAULT_DEV_ITEMS = [
      'ui/_shared.py with inject_root_path(), db_session(), page_header(title, caption), and bridge_get(); wrap DB writes in try/except st.error. Deduplicates boilerplate and stops raw tracebacks.',
      'Code review: UI'),
 
-    # ---- LUMEN INTEGRATION (read-only architecture pass, 2026-06-30) -----
-    ('idea', 'P2', 'Lumen Integration', 'proposed', 'Prerequisite: deploy the Lumen backend',
-     "Lumen's FastAPI + Postgres + Temporal backend is code-complete but never deployed. Nothing connects until it runs (backend/DEPLOY_P0.md, Railway). All pool <-> Lumen integration is gated on this.",
+    # ---- LUMEN INTEGRATION (OPTIONAL overlay -- not a dependency) --------
+    # This platform is a complete, self-contained Operations Core with its OWN
+    # ingestion pipeline and intelligence. Lumen is an optional cross-business
+    # overlay for the multi-business owner. Single-platform users lose nothing.
+    ('idea', 'P3', 'Lumen Integration', 'proposed', 'Context: Lumen is an optional cross-business overlay, not this platform\'s brain',
+     "The pool platform is its own source of truth with its own canonical data + expected-vs-actual intelligence. Lumen (a separate Universal Life OS) can roll this platform up alongside the owner's other businesses for a cross-business view. Integration is a BONUS for the multi-business owner; it is never required and this platform is fully functional without it.",
      'Lumen architecture pass'),
-    ('idea', 'P2', 'Lumen Integration', 'proposed', 'Phase 0: add the pool business as a Lumen business_id (zero code)',
-     "Point Lumen's existing FreshBooks + LACRM connectors at the pool business's accounts. Lumen then ingests pool invoices/estimates/contacts/leads as canonical objects and its attention/brief engine lights up. No new code; money/CRM source of truth stays in FreshBooks + LACRM.",
+    ('idea', 'P3', 'Lumen Integration', 'proposed', 'Prerequisite: deploy the Lumen backend',
+     "Lumen's FastAPI + Postgres + Temporal backend is code-complete but never deployed. Any pool <-> Lumen integration is gated on it running (C:/lumen/03_CURRENT_BUILD/backend/DEPLOY_P0.md, Railway). Read-only; do not modify Lumen code.",
      'Lumen architecture pass'),
-    ('idea', 'P2', 'Lumen Integration', 'proposed', 'Phase 1: build a pool -> Lumen connector/webhook',
-     "For data FreshBooks/LACRM do not carry: service jobs/visits, pool estimate detail, RingCentral comms. Follow Lumen's FareHarbor template -> raw_vault -> normalize -> canonical_objects (jobs -> Booking, comms -> interaction) under the pool business_id. This is the path that feeds Lumen's intelligence engine.",
+    ('idea', 'P3', 'Lumen Integration', 'proposed', 'Phase 0: register the pool business as one Lumen business_id (zero code)',
+     "Point Lumen's own FreshBooks + LACRM connectors at the pool business's accounts so Lumen ingests pool invoices/estimates/contacts as canonical objects under one business_id and its cross-business brief lights up. Additive rollup only -- the pool platform's own data + intelligence are unaffected.",
      'Lumen architecture pass'),
-    ('idea', 'P3', 'Lumen Integration', 'proposed', 'Phase 2: pull Lumen intelligence into the pool UI',
-     "Surface Lumen attention events (overdue invoices, stale quotes), approval requests, and the daily brief inside the pool dashboard via GET /api/sync/pull or the events/approvals endpoints.",
+    ('idea', 'P3', 'Lumen Integration', 'proposed', 'Phase 1: feed Lumen the data FreshBooks/LACRM do not carry',
+     "Service jobs/visits, pool estimate detail, RingCentral comms. Push these to Lumen via its connector -> raw_vault -> canonical_objects path under the pool business_id so Lumen's cross-business rollup is complete. This mirrors -- does not replace -- the pool platform's own canonical store.",
      'Lumen architecture pass'),
-    ('idea', 'P2', 'Lumen Integration', 'proposed', 'Decide a single writer per shared external system',
-     "Both apps can write to FreshBooks/LACRM. Pick ONE writer per system to avoid conflicts. Recommended: the pool platform writes (it is the operational system of record); Lumen reads.",
-     'Lumen architecture pass'),
-    ('idea', 'P3', 'Lumen Integration', 'proposed', 'Use LACRM as the shared contact source of truth',
-     "Lumen dedups contacts by email per business_id. Keep LACRM as the canonical customer record both apps sync to, and assign the pool business one stable business_id used everywhere.",
-     'Lumen architecture pass'),
-    ('idea', 'P3', 'Lumen Integration', 'proposed', 'Auth: obtain a Lumen JWT for the pool platform',
-     "Pool platform authenticates to Lumen via OWNER_API_KEY -> POST /api/auth/token, then calls sync/events/approvals endpoints with the Bearer token.",
-     'Lumen architecture pass'),
-    ('idea', 'P3', 'Lumen Integration', 'proposed', 'Do not push pool data as an opaque Lumen sync store',
-     "Pushing pool data as a pool_service_v1 store via POST /api/sync/push is fastest but the data stays a blob and never reaches Lumen's canonical/intelligence layer. Use only for prototyping; connector -> canonical is the real design.",
+    ('idea', 'P3', 'Lumen Integration', 'proposed', 'Integration hygiene: one writer per shared external system + shared JWT',
+     "If both apps run, pick ONE writer per external system (FreshBooks/LACRM) to avoid conflicts; the other reads. Keep LACRM as the shared contact record keyed to one stable business_id. Pool platform auths to Lumen via OWNER_API_KEY -> POST /api/auth/token, then Bearer token on sync/events/approvals. Do NOT push pool data as an opaque sync blob -- it never reaches Lumen's canonical layer.",
      'Lumen architecture pass'),
 ]
 
@@ -306,6 +313,27 @@ def add_missing_defaults(session: Session) -> int:
     if added:
         session.commit()
     return added
+
+
+# Rows the user created carry these sources; everything else is a seeded review row.
+_MANUAL_SOURCES = {'user', 'manual'}
+
+
+def rebuild_defaults(session: Session) -> tuple[int, int]:
+    """Re-baseline: delete seeded review rows and re-insert the current defaults.
+
+    Preserves user-added rows (source in _MANUAL_SOURCES). Use after the default
+    content changes. Returns (removed, inserted).
+    """
+    removed = 0
+    for row in session.exec(select(DevItem)).all():
+        if row.source not in _MANUAL_SOURCES:
+            session.delete(row)
+            removed += 1
+    for spec in DEFAULT_DEV_ITEMS:
+        session.add(DevItem(**_spec_to_kwargs(spec)))
+    session.commit()
+    return removed, len(DEFAULT_DEV_ITEMS)
 
 
 def load_items(session: Session, category: str) -> list[DevItem]:
@@ -495,14 +523,21 @@ with tab_add:
 
     st.divider()
     st.markdown('**Maintenance**')
-    mcol1, mcol2 = st.columns(2)
+    mcol1, mcol2, mcol3 = st.columns(3)
     with mcol1:
-        if st.button('Re-add default review items (non-destructive)'):
+        if st.button('Re-add missing defaults (non-destructive)'):
             with Session(engine) as sess:
                 added = add_missing_defaults(sess)
             st.success(f'Added {added} missing default item(s).' if added else 'All default items already present.')
             st.rerun()
     with mcol2:
+        st.caption('Re-baseline replaces the seeded review with the current corrected defaults. Your manually added rows are kept.')
+        if st.button('Re-baseline from corrected defaults', type='primary'):
+            with Session(engine) as sess:
+                removed, inserted = rebuild_defaults(sess)
+            st.success(f'Re-baselined: removed {removed} seeded rows, inserted {inserted} current defaults. Manual rows preserved.')
+            st.rerun()
+    with mcol3:
         export_df = pd.DataFrame([{
             'category': i.category, 'priority': i.priority, 'status': i.status,
             'area': i.area, 'title': i.title, 'detail': i.detail, 'source': i.source,
@@ -520,22 +555,29 @@ with tab_overview:
     st.caption('Verdict from a full four-part code review on 2026-06-30, with 2026 market and AI grounding.')
 
     st.markdown(
-        '**Bottom line:** a genuinely good small product is buried under an oversized build process. '
-        'The estimation engine, heater-sizing math, quote-workflow state machine, and the FreshBooks/LACRM '
-        'connectors are real, thoughtful engineering. The problem is not the product code; it is the '
-        '"phase ladder" wrapped around it, which generated roughly 8,000 files and 2,000+ commits that add '
-        'no functionality, plus a missing security layer.'
+        '**What this is:** a self-contained **Unified Pool Service Operations Core** -- it is its OWN '
+        'source of truth, with its own staged ingestion pipeline (raw -> normalized -> matched -> approved '
+        '-> applied), its own connectors (LACRM, RingCentral, FreshBooks, Skimmer, Heritage), and its own '
+        'deterministic intelligence (chemistry model, pool-volume signal generator, expected-vs-actual '
+        'variance/calibration). Some users will run only this platform and get the complete product. Lumen '
+        'is an OPTIONAL cross-business overlay, not a dependency.'
     )
 
-    st.markdown('**The three things that matter most**')
     st.markdown(
-        '1. **Retire the phase ladder.** ~99% of the file count and git history is ceremony '
-        '(4 files per "step", 120 steps per phase, each a renamed constant). It makes the repo nearly '
-        'unsearchable and hides the real roadmap. Archive or delete it.\n'
-        '2. **Add authentication.** There is no auth anywhere in the API. Every endpoint, including the '
-        'DB re-seed and live-write sync, is public. This must land before any deployment.\n'
-        '3. **Collapse routing_bridge_*.** ~32 files and ~4,444 LOC that implement nothing but JSON '
-        'attestations that they implement nothing. One guarded module plus one real client replaces all of it.'
+        '**Bottom line:** a genuinely good product core. The estimation engine, heater-sizing math, '
+        'quote-workflow state machine, staged ingestion, and the FreshBooks/LACRM/RingCentral/Heritage '
+        'connectors are real, thoughtful engineering. It was buried under a "phase ladder" that generated '
+        '~8,000 ceremony files -- now archived (2026-06-30). What remains is finishing the real intelligence '
+        'layer and hardening for deployment.'
+    )
+
+    st.markdown('**Status of the three biggest problems**')
+    st.markdown(
+        '1. **Retire the phase ladder.** DONE 2026-06-30 -- ~8,135 ceremony files archived to archive/ on '
+        'branch cleanup/retire-phase-ladder; git history/search usable again. Fully reversible.\n'
+        '2. **Add authentication.** STILL OPEN -- no auth anywhere in the API; every endpoint (incl. DB '
+        're-seed and live-write sync) is public. Must land before any deployment.\n'
+        '3. **Collapse routing_bridge_*.** DONE 2026-06-30 -- all 32 files archived and de-wired from app.py.'
     )
 
     st.markdown('**Architecture grades by area**')
@@ -548,19 +590,24 @@ with tab_overview:
         {'Area': 'Data model', 'Grade': 'C', 'Note': 'Pragmatic and indexed, but no FKs/enums, CSV-in-column, naive datetimes.'},
         {'Area': 'Security', 'Grade': 'D', 'Note': 'No auth, plaintext secrets, one unsigned webhook.'},
         {'Area': 'Testing', 'Grade': 'D', 'Note': 'Real tests are excellent but ~1.3% of the suite; no CI.'},
-        {'Area': 'UI / Streamlit', 'Grade': 'C+', 'Note': 'Real pages are clean; ~2,000 junk pages, no error handling, no shared helpers.'},
-        {'Area': 'Build methodology', 'Grade': 'F', 'Note': 'Phase ladder is process-as-code; generates files, not features.'},
+        {'Area': 'UI / Streamlit', 'Grade': 'B-', 'Note': 'Cleaned 2026-06-30: 26 real pages, junk archived. Still no error handling / shared helpers.'},
+        {'Area': 'Build methodology', 'Grade': 'C', 'Note': 'Phase ladder retired 2026-06-30 (archived). Now needs CI + real behavioral tests to replace the empty ones.'},
     ])
     st.dataframe(grades, width='stretch', hide_index=True)
 
     st.markdown('**Suggested order of work**')
     st.markdown(
-        '1. Archive the phase ladder and the routing_bridge_* tree (unblocks everything else).\n'
-        '2. Add API auth + CI running the real tests.\n'
-        '3. Harden SQLite (WAL + busy_timeout), then plan the Postgres + Alembic move.\n'
+        '1. ~~Archive the phase ladder and routing_bridge_* tree.~~ DONE 2026-06-30.\n'
+        '2. Add API auth + CI running the real tests (highest-priority remaining foundation item).\n'
+        '3. Harden SQLite (WAL + busy_timeout) as a stopgap, then execute the Postgres + Alembic + '
+        'schema-per-layer move (the strategic fix -- SQLite\'s single-writer limit becomes a wall once '
+        'UI + connectors + jobs write concurrently).\n'
         '4. Standardize DB sessions on Depends(get_session); add FKs/enums.\n'
-        '5. Build the LSI chemistry engine -- the highest-value product feature.\n'
-        '6. Layer in route optimization, recurring billing, and the LLM front-desk agent.'
+        '5. Formalize the staged ingestion pipeline as the shared connector spine.\n'
+        '6. Port the Key West deterministic chemistry model + build the expected-vs-actual variance engine '
+        '(the core intelligence layer) and integrate the pool-volume tool.\n'
+        '7. Build out the Skimmer ops connector, then route optimization, recurring billing, and the '
+        'LLM front-desk agent.'
     )
 
     st.info(
