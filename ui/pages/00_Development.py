@@ -20,7 +20,7 @@ configure_page('Development Tracker', icon='🧱')
 
 # Current build stamp (bump when a new batch of work ships). Modeled on Lumen's
 # DEV_VERSION: every changelog entry is tagged with the build it shipped in.
-DEV_BUILD = '2026.06.30-e'
+DEV_BUILD = '2026.06.30-f'
 
 # --------------------------------------------------------------------------
 # Vocabularies
@@ -128,6 +128,9 @@ DEFAULT_DEV_ITEMS = [
     ('feature', '-', 'Purchasing', 'working', 'Purchasing intelligence (best source + price anomalies)',
      'Supplier price book per product, cheapest-current-vendor recommendation with cross-vendor spread, and price-anomaly flags, computed over ProductPriceHistory (fed by invoice ingestion or manual entry). Manual price-observation entry on the page. app/services/purchasing.py + ui/pages/19_Purchasing.py; logic locked by 4 tests.',
      'Build 2026.06.30-e'),
+    ('feature', '-', 'Assets', 'working', 'Asset lifecycle registry',
+     'Tracks physical assets through ordered -> received -> installed -> retired with serial/model numbers, purchase provenance, install location (property + vessel), and warranty. Per-property asset lists; installed-base value + expiring-warranty rollups. New AssetRecord table alongside the thin legacy EquipmentAsset. app/services/assets.py + ui/pages/20_Assets.py; lifecycle locked by 3 tests.',
+     'Build 2026.06.30-f'),
 
     # ---- CODE HEALTH FINDINGS -------------------------------------------
     ('health', 'P0', 'Security', 'open', 'No authentication or authorization anywhere in the API',
@@ -334,6 +337,9 @@ DEFAULT_LOG_ENTRIES = [
     # ---- Build 2026.06.30-e : purchasing intelligence --------------------
     ('2026.06.30-e', 'shipped', 'Purchasing', 'Purchasing intelligence: best source + price anomalies',
      'app/services/purchasing.py turns the ProductPriceHistory ledger into decisions: a supplier price book per product, best-source recommendation with the cross-vendor spread you are leaving on the table, and price-anomaly flags (a vendor\'s latest cost jumping vs its own previous). New Purchasing page (19) with best-source table, per-product price book, anomaly list, and manual price entry. No new tables -- pure analytics over the existing ledger. 4 tests lock the logic (87 -> 91 passing).'),
+    # ---- Build 2026.06.30-f : asset lifecycle registry -------------------
+    ('2026.06.30-f', 'shipped', 'Assets', 'Asset lifecycle registry (ordered -> received -> installed -> retired)',
+     'New AssetRecord table + app/services/assets.py track a physical item (pump, heater, filter...) through its lifecycle with serial/model numbers, purchase provenance (vendor/invoice/cost/date), install location (property + vessel), and warranty. asset_summary rolls up installed-base value + warranties expiring soon. New Assets page (20): filterable registry, per-property asset list, add form, and receive/install/retire actions. Confirmed invoice ingestion already feeds the price ledger, so Purchasing self-populates. 3 tests lock the lifecycle (91 -> 94 passing).'),
 ]
 
 _LOG_COLUMNS = ('build', 'kind', 'area', 'title', 'summary')
