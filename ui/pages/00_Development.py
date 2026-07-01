@@ -20,7 +20,7 @@ configure_page('Development Tracker', icon='🧱')
 
 # Current build stamp (bump when a new batch of work ships). Modeled on Lumen's
 # DEV_VERSION: every changelog entry is tagged with the build it shipped in.
-DEV_BUILD = '2026.06.30-h'
+DEV_BUILD = '2026.06.30-i'
 
 # --------------------------------------------------------------------------
 # Vocabularies
@@ -128,6 +128,9 @@ DEFAULT_DEV_ITEMS = [
     ('feature', '-', 'Purchasing', 'working', 'Purchasing intelligence (best source + price anomalies)',
      'Supplier price book per product, cheapest-current-vendor recommendation with cross-vendor spread, and price-anomaly flags, computed over ProductPriceHistory (fed by invoice ingestion or manual entry). Manual price-observation entry on the page. app/services/purchasing.py + ui/pages/19_Purchasing.py; logic locked by 4 tests.',
      'Build 2026.06.30-e'),
+    ('feature', '-', 'Profitability', 'working', 'Customer profitability (revenue - real cost)',
+     'FreshBooks invoice revenue minus Skimmer-fed real cost (labor at true $/hour + chemical usage) joined on the matched account: profit + margin per customer, loss flags. FreshBooks invoice pull (fixture-first, live-ready) lands revenue in BillingDocument. app/services/{freshbooks_revenue,profitability}.py + ui/pages/23_Profitability.py; 3 end-to-end tests.',
+     'Build 2026.06.30-i'),
     ('feature', '-', 'Identity', 'working', 'Customer identity matching (3-pass)',
      'Resolves Skimmer customers and FreshBooks clients into one account so cost and revenue join. Pass 1 exact email, pass 2 exact phone / strong fuzzy name (auto), pass 3 manual queue for ambiguous; new customers create a fresh account. Manual confirm/relink/unlink override, persisted. CustomerProfile + CustomerMatch tables; app/services/customer_matching.py + ui/pages/22_Customer_Matching.py; 5 tests.',
      'Build 2026.06.30-h'),
@@ -349,6 +352,9 @@ DEFAULT_LOG_ENTRIES = [
     # ---- Build 2026.06.30-h : customer identity matching ----------------
     ('2026.06.30-h', 'shipped', 'Identity', 'Three-pass customer matching engine + manual review',
      'New CustomerProfile + CustomerMatch tables and app/services/customer_matching.py resolve external customer records (Skimmer, FreshBooks) to one internal account: pass 1 exact email auto-links, pass 2 exact phone / strong fuzzy name auto-links, pass 3 ambiguous ones land in a manual queue; genuinely new customers get a fresh account. confirm_match/unlink_match let a human override anytime and decisions persist (low-maintenance for a stable client base). Skimmer sync now resolves customers into per-customer accounts (not a catch-all) so cost lands on the right identity. New Customer Matching page (22): review queue + all-matches table + override. Phone normalized to last 10 digits. 5 tests (98 -> 103). Sets up FreshBooks revenue to join Skimmer cost.'),
+    # ---- Build 2026.06.30-i : revenue pull + profitability --------------
+    ('2026.06.30-i', 'shipped', 'Profitability', 'FreshBooks revenue pull + customer profitability engine',
+     'Closes the money loop. app/services/freshbooks_revenue.py pulls customer invoices INTO the platform (fixture-first; live when the token is wired) -- the existing FreshBooks integration only pushed estimates out. Each invoice resolves its client through the matching engine and lands as BillingDocument revenue. app/services/profitability.py joins FreshBooks revenue with Skimmer-fed cost (labor at true $/hour + chemicals at latest cost) on the matched account -> profit + margin per customer, most-to-least profitable, loss flags. New Profitability page (23): pull button + revenue/cost/profit metrics + per-customer P&L. Demo across fixtures: $540 revenue - $152 cost = $388 profit. 3 end-to-end tests (103 -> 106 passing).'),
 ]
 
 _LOG_COLUMNS = ('build', 'kind', 'area', 'title', 'summary')
