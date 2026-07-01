@@ -20,7 +20,7 @@ configure_page('Development Tracker', icon='🧱')
 
 # Current build stamp (bump when a new batch of work ships). Modeled on Lumen's
 # DEV_VERSION: every changelog entry is tagged with the build it shipped in.
-DEV_BUILD = '2026.06.30-m'
+DEV_BUILD = '2026.06.30-n'
 
 # --------------------------------------------------------------------------
 # Vocabularies
@@ -128,6 +128,9 @@ DEFAULT_DEV_ITEMS = [
     ('feature', '-', 'Purchasing', 'working', 'Purchasing intelligence (best source + price anomalies)',
      'Supplier price book per product, cheapest-current-vendor recommendation with cross-vendor spread, and price-anomaly flags, computed over ProductPriceHistory (fed by invoice ingestion or manual entry). Manual price-observation entry on the page. app/services/purchasing.py + ui/pages/19_Purchasing.py; logic locked by 4 tests.',
      'Build 2026.06.30-e'),
+    ('feature', '-', 'Chemistry', 'working', 'LSI water-balance engine',
+     'Langelier Saturation Index from a water test (pH, temp, CH, TA, TDS, optional CYA correction) with corrosive/balanced/scaling classification, per-parameter range checks, and dosing recommendations (per-10k-gal industry rates). Reads/writes WaterTestLog. app/services/chemistry.py + ui/pages/26_Chemistry.py; math locked by 7 tests.',
+     'Build 2026.06.30-n'),
     ('feature', '-', 'Intelligence', 'working', 'Expected-vs-actual variance (labor time)',
      'Compares priced visit minutes (vessel) vs Skimmer-logged actual minutes, valued at true $/hour: per-visit + per-property variance with chronic-overrun flags and unpriced-labor cost. First dimension of the expected-vs-actual brain (chemical/margin next). app/services/variance.py + ui/pages/25_Variance.py; 2 tests.',
      'Build 2026.06.30-k'),
@@ -246,8 +249,8 @@ DEFAULT_DEV_ITEMS = [
      'When the Postgres move happens, use a schema-per-layer model in one modular monolith DB, with JSONB for raw payload retention and idempotency + optional outbox as reliability primitives. Enforces the raw->applied contract at the DB boundary.',
      'Deep-research rollout report'),
     # Product features (market-benchmarked)
-    ('idea', 'P1', 'Chemistry', 'proposed', 'Port the Key West deterministic chemistry model into versioned code',
-     'The Key West consumption-coefficients workbook (monthly climate + rain dilution + dosing rules) already exists under references/legacy_seed and is validated. Port it into app/intelligence/chemistry_keywest.py as a VERSIONED module with the workbook as a regression oracle. This is a port of proven logic, NOT a greenfield feature. Layer an LSI water-balance calc (pH, temp, calcium hardness, alkalinity, CYA, TDS) + dosing recommendations on top. The core product differentiator vs generic field-service tools.',
+    ('idea', 'P1', 'Chemistry', 'in_progress', 'Port the Key West deterministic chemistry model into versioned code',
+     'LSI water-balance calc + dosing DONE 2026.06.30-n (app/services/chemistry.py). Remaining half: the Key West CONSUMPTION model (monthly climate + rain dilution -> expected chemical usage) for chemical variance. That logic already largely lives in the estimator coefficients (bootstrap.py BaselineModelVersion); wrapping it as a clean versioned module + wiring expected-vs-actual chemical variance is the follow-up.',
      'Deep-research rollout report'),
     ('idea', 'P1', 'Operations', 'proposed', 'Route optimization & scheduling',
      'GPS-aware route building to maximize pools serviced per day. Notably, market leader Skimmer lacks this, so it is a real differentiation opportunity. Pairs with job-duration modeling.',
@@ -373,6 +376,9 @@ DEFAULT_LOG_ENTRIES = [
     # ---- Build 2026.06.30-m : UI migration batch 2 + collision fix ------
     ('2026.06.30-m', 'refactor', 'UI', 'UI migration batch 2 + page-number collision fix',
      'Fixed page-number collisions I introduced: renamed 3 kept front-desk pages (Call_Context, EOD_SMS_Batches, Routing_Rules) from 22-24 to 40-42 so the new analytics pages (Customer Matching / Profitability / Route P&L) own 22-24 cleanly. Migrated 6 more pages to the shared configure_page/page_header theme: Baseline Models, Residential + Commercial Estimator, Commercial Deliveries, Heater Quote, Replaster Quote. All render clean; 111 tests pass. Remaining to migrate: diagnostics (14-17) and routing pages (31-36, 42).'),
+    # ---- Build 2026.06.30-n : LSI chemistry engine ----------------------
+    ('2026.06.30-n', 'shipped', 'Chemistry', 'LSI water-balance chemistry engine + dosing',
+     'The core pool-specific differentiator. app/services/chemistry.py computes the Langelier Saturation Index (Taylor/APSP factor method expressed as continuous logs) from pH, temperature, calcium hardness, total alkalinity, TDS, and optional CYA correction; classifies corrosive/balanced/scaling; checks each parameter against ideal ranges; and recommends dosing (industry rates per 10,000 gal) to bring water into balance. New Chemistry page (26): load a property\'s latest reading or enter manually, see LSI + parameter status + dosing, and save the reading to the water-test log. 7 tests lock the math against balanced/corrosive/scaling worked cases (111 -> 118 passing).'),
 ]
 
 _LOG_COLUMNS = ('build', 'kind', 'area', 'title', 'summary')
