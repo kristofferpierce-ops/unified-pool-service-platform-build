@@ -73,6 +73,7 @@ with launch_d:
     st.page_link('pages/22_Customer_Matching.py', label='Customer Matching', icon='🔗', help='Reconcile Skimmer and FreshBooks customers into one account so cost and revenue join. Review and override matches here.')
     st.page_link('pages/23_Profitability.py', label='Profitability', icon='📈', help='Where the profit is: FreshBooks revenue minus real cost (labor + chemicals) per customer.')
     st.page_link('pages/24_Route_PnL.py', label='Route P&L', icon='🚚', help='Route-level profitability: which routes make money, which cost more, by route and technician.')
+    st.page_link('pages/25_Variance.py', label='Variance', icon='🎯', help='Expected vs actual: priced visit time vs logged time, valued at true $/hour. Flags chronic overruns.')
     st.page_link('pages/8_Compare_&_Train.py', label='Compare + Train', icon='📊', help='Open compare and train workflows for pricing calibration and review.')
     st.page_link('pages/10_Estimate_Library.py', label='Estimate Library', icon='📚', help='Open saved estimate runs and exported reporting views.')
     st.page_link('pages/14_Bridge_Review.py', label='Bridge Review', icon='☎️', help='Open the platform-side bridge SMS review and guarded LACRM dry-run apply page.')

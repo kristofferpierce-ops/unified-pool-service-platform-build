@@ -20,7 +20,7 @@ configure_page('Development Tracker', icon='🧱')
 
 # Current build stamp (bump when a new batch of work ships). Modeled on Lumen's
 # DEV_VERSION: every changelog entry is tagged with the build it shipped in.
-DEV_BUILD = '2026.06.30-j'
+DEV_BUILD = '2026.06.30-k'
 
 # --------------------------------------------------------------------------
 # Vocabularies
@@ -128,6 +128,9 @@ DEFAULT_DEV_ITEMS = [
     ('feature', '-', 'Purchasing', 'working', 'Purchasing intelligence (best source + price anomalies)',
      'Supplier price book per product, cheapest-current-vendor recommendation with cross-vendor spread, and price-anomaly flags, computed over ProductPriceHistory (fed by invoice ingestion or manual entry). Manual price-observation entry on the page. app/services/purchasing.py + ui/pages/19_Purchasing.py; logic locked by 4 tests.',
      'Build 2026.06.30-e'),
+    ('feature', '-', 'Intelligence', 'working', 'Expected-vs-actual variance (labor time)',
+     'Compares priced visit minutes (vessel) vs Skimmer-logged actual minutes, valued at true $/hour: per-visit + per-property variance with chronic-overrun flags and unpriced-labor cost. First dimension of the expected-vs-actual brain (chemical/margin next). app/services/variance.py + ui/pages/25_Variance.py; 2 tests.',
+     'Build 2026.06.30-k'),
     ('feature', '-', 'Profitability', 'working', 'Route-level P&L',
      'Route and technician profitability: exact per-visit cost + evenly-allocated customer revenue per route, loss flags, unrouted-visit count. RouteRecord + RouteVisit tables; Skimmer sync applies routes. app/services/route_pnl.py + ui/pages/24_Route_PnL.py; 3 tests.',
      'Build 2026.06.30-j'),
@@ -361,6 +364,9 @@ DEFAULT_LOG_ENTRIES = [
     # ---- Build 2026.06.30-j : route-level P&L ---------------------------
     ('2026.06.30-j', 'shipped', 'Profitability', 'Route-level P&L (by route + technician)',
      'New RouteRecord + RouteVisit tables; the Skimmer sync now applies routes and links them to service visits by work-order id. app/services/route_pnl.py rolls up exact per-visit cost and evenly-allocated customer revenue into route- and technician-level P&L, with loss flags and an unrouted-visits count. New Route P&L page (24). The revenue allocation (each customer\'s revenue split evenly across their visits) is stated explicitly. 3 tests (106 -> 109 passing).'),
+    # ---- Build 2026.06.30-k : expected-vs-actual variance ---------------
+    ('2026.06.30-k', 'shipped', 'Intelligence', 'Expected-vs-actual labor variance (the core brain, dimension 1)',
+     'app/services/variance.py compares priced visit time (the vessel\'s minutes_on_site) against Skimmer-logged actual minutes, valued at the true $/hour: per-visit and per-property variance, chronic-overrun flags, and the unpriced-labor cost that silently erodes margin. New Variance page (25). Demo: +62 minutes / ~$48 of unpriced labor across the fixture visits, both properties flagged. First variance dimension; chemical-usage and margin variance read the same actuals next. 2 tests (109 -> 111 passing).'),
 ]
 
 _LOG_COLUMNS = ('build', 'kind', 'area', 'title', 'summary')
