@@ -54,6 +54,7 @@ launch_a, launch_b, launch_c, launch_d = st.columns(4)
 with launch_a:
     st.page_link('pages/11_Quote_Workflow.py', label='Quote Workflow', icon='🧭', help='Open the quote workflow board to create, review, sync, and move quote cases.')
     st.page_link('pages/7_Invoice_Review.py', label='Invoice Review', icon='🧾', help='Open the invoice review queue for staged invoice parsing and approval.')
+    st.page_link('pages/00_Development.py', label='Development', icon='🧱', help='Open the development tracker: working features, code-health findings, and the improvement roadmap.')
 with launch_b:
     st.page_link('pages/5_Commercial_Estimator.py', label='Commercial Estimator', icon='🏢', help='Open the commercial estimator for scenario building and pricing.')
     st.page_link('pages/4_Residential_Estimator.py', label='Residential Estimator', icon='🏠', help='Open the residential estimator for service pricing workflows.')

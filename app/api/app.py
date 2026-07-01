@@ -15,18 +15,6 @@ from app.api.routes.routing_candidates import router as routing_candidates_route
 from app.api.routes.routing_candidate_import import router as routing_candidate_import_router
 from app.api.routes.routing_candidate_workbench import router as routing_candidate_workbench_router
 from app.api.routes.routing_preference_drafts import router as routing_preference_drafts_router
-from app.api.routes.routing_bridge_apply_preview import router as routing_bridge_apply_preview_router
-from app.api.routes.routing_bridge_write_rehearsal import router as routing_bridge_write_rehearsal_router
-from app.api.routes.routing_bridge_write_audit import router as routing_bridge_write_audit_router
-from app.api.routes.routing_bridge_write_audit_writer import router as routing_bridge_write_audit_writer_router
-from app.api.routes.routing_bridge_write_executor import router as routing_bridge_write_executor_router
-from app.api.routes.routing_bridge_write_dry_run_bundle import router as routing_bridge_write_dry_run_bundle_router
-from app.api.routes.routing_bridge_http_client_stub import router as routing_bridge_http_client_stub_router
-from app.api.routes.routing_bridge_http_client_dry_run import router as routing_bridge_http_client_dry_run_router
-from app.api.routes.routing_bridge_network_transport_guard import router as routing_bridge_network_transport_guard_router
-from app.api.routes.routing_bridge_network_transport_dry_run_adapter import router as routing_bridge_network_transport_dry_run_adapter_router
-from app.api.routes.routing_bridge_network_transport_interface_scaffold import router as routing_bridge_network_transport_interface_scaffold_router
-from app.api.routes.routing_bridge_network_transport_dry_run_invocation_path import router as routing_bridge_network_transport_dry_run_invocation_path_router
 from app.api.routes.freshbooks_oauth import router as freshbooks_oauth_router
 from app.api.routes.health import router as health_router
 from app.api.routes.quote_workflow import router as quote_workflow_router
@@ -38,7 +26,6 @@ import app.models.quote_tables as _quote_tables
 import app.models.heater_quote_tables as _heater_quote_tables
 import app.models.routing_candidates as _routing_candidate_tables
 import app.models.routing_preference_drafts as _routing_preference_draft_tables
-import app.models.routing_bridge_write_audit as _routing_bridge_write_audit_tables
 from app.services.bootstrap import seed_defaults
 
 app = FastAPI(title=APP_NAME)
@@ -52,18 +39,6 @@ app.include_router(routing_candidates_router)
 app.include_router(routing_candidate_import_router)
 app.include_router(routing_candidate_workbench_router)
 app.include_router(routing_preference_drafts_router)
-app.include_router(routing_bridge_apply_preview_router)
-app.include_router(routing_bridge_write_rehearsal_router)
-app.include_router(routing_bridge_write_audit_router)
-app.include_router(routing_bridge_write_audit_writer_router)
-app.include_router(routing_bridge_write_executor_router)
-app.include_router(routing_bridge_write_dry_run_bundle_router)
-app.include_router(routing_bridge_http_client_stub_router)
-app.include_router(routing_bridge_http_client_dry_run_router)
-app.include_router(routing_bridge_network_transport_guard_router)
-app.include_router(routing_bridge_network_transport_dry_run_adapter_router)
-app.include_router(routing_bridge_network_transport_interface_scaffold_router)
-app.include_router(routing_bridge_network_transport_dry_run_invocation_path_router)
 app.include_router(freshbooks_oauth_router)
 app.include_router(quote_workflow_router)
 app.include_router(heater_quotes_router)

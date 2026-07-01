@@ -15,3 +15,7 @@ node_modules/
 .env.*
 .vscode/
 .idea/
+backups/
+data/*.db
+*.db-shm
+*.db-wal

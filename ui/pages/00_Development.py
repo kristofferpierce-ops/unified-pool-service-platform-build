@@ -1,0 +1,571 @@
+from __future__ import annotations
+
+import sys
+from datetime import datetime
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]  # ui/pages/00_Development.py -> repo root
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+import pandas as pd
+import streamlit as st
+from sqlmodel import Session, select
+
+from app.core.database import create_db_and_tables, engine
+from app.models.dev_tracker import DevItem
+
+st.set_page_config(page_title='Development Tracker', layout='wide')
+
+# --------------------------------------------------------------------------
+# Vocabularies
+# --------------------------------------------------------------------------
+PRIORITY_OPTIONS = ['P0', 'P1', 'P2', 'P3', '-']
+STATUS_BY_CATEGORY = {
+    'feature': ['working', 'partial', 'stub'],
+    'health': ['open', 'in_progress', 'resolved', 'wont_fix'],
+    'idea': ['proposed', 'planned', 'in_progress', 'done', 'parked'],
+}
+DEFAULT_STATUS = {'feature': 'working', 'health': 'open', 'idea': 'proposed'}
+PRIORITY_RANK = {'P0': 0, 'P1': 1, 'P2': 2, 'P3': 3, '-': 4}
+FEATURE_STATUS_RANK = {'working': 0, 'partial': 1, 'stub': 2}
+
+CATEGORY_META = {
+    'feature': (
+        'Working Features',
+        'What the platform actually does today, with honest flags on partial and stub pieces.',
+    ),
+    'health': (
+        'Code Health',
+        'Architecture and code-quality findings from the full review, ranked by priority.',
+    ),
+    'idea': (
+        'Ideas & Roadmap',
+        'Improvements to build, grounded in the code review plus 2026 market and AI research. Add your own anytime.',
+    ),
+}
+
+# --------------------------------------------------------------------------
+# Seed content: the full review as of 2026-06-30 (4-agent code review + market research)
+# Each tuple: (category, priority, area, status, title, detail, source)
+# --------------------------------------------------------------------------
+DEFAULT_DEV_ITEMS = [
+    # ---- WORKING FEATURES ------------------------------------------------
+    ('feature', '-', 'Estimation', 'working', 'Residential & commercial estimation engine',
+     'Data-driven pricing: gallons x coefficient x condition-multiplier x calibration-factor, with versioned BaselineModelVersion coefficients in the DB, burdened labor, amortized overhead, and margin. The strongest part of the codebase.',
+     'Code review: services'),
+    ('feature', '-', 'Estimation', 'working', 'Heater & equipment sizing',
+     'Real thermodynamic BTU math, candidate ranking into recommendation bands, and an equipment-package builder/wizard/selector with preview-then-commit. ~3,100 LOC of genuine logic.',
+     'Code review: services'),
+    ('feature', '-', 'Quoting', 'working', 'Quote workflow state machine',
+     'Quote cases with enforced stage transitions (allowed_next), stage history, staleness/follow-up tracking, and dashboard rollups that mirror CRM bucket language. The 86KB workflow page is the UI centerpiece.',
+     'Code review: services/API'),
+    ('feature', '-', 'Connectors', 'working', 'FreshBooks integration',
+     '3-legged OAuth (start/callback/refresh with CSRF state), draft-estimate push, reconcile, mark-sent, and signed inbound webhooks (HMAC-SHA256). Real API client, used live when configured.',
+     'Code review: API/services'),
+    ('feature', '-', 'Connectors', 'working', 'LACRM (Less Annoying CRM) integration',
+     'Full urllib client: contacts, pipelines, pipeline items, tasks, notes, webhooks, with a signed webhook handshake. Live writes are gated behind dry-run default + a typed confirmation phrase.',
+     'Code review: services'),
+    ('feature', '-', 'Communications', 'working', 'Front-desk SMS/call triage',
+     'Review queue, contact-match candidate scoring, operator decisions, and a gated LACRM apply (dry-run default; live needs confirm_live_write + typed phrase + idempotency key).',
+     'Code review: services/API'),
+    ('feature', '-', 'Communications', 'partial', 'RingCentral inbound ingestion',
+     'Webhook -> normalized records works. But it is inbound-only: there is no RingCentral API client, so the platform cannot send SMS or place calls outbound yet.',
+     'Code review: services'),
+    ('feature', '-', 'Billing', 'working', 'Invoice ingestion',
+     'PDF/TXT/CSV upload, pypdf text extraction, regex line parsing, fuzzy product/property matching, and price-history staging that feeds back into estimate costs.',
+     'Code review: services/UI'),
+    ('feature', '-', 'Operations', 'working', 'Commercial deliveries',
+     'Monthly delivery and property-level billing review, CRUD, and pandas/openpyxl XLSX export.',
+     'Code review: services'),
+    ('feature', '-', 'Operations', 'working', 'Accounts / properties / vessels',
+     'Core customer-asset management CRUD across Account, Property, and PoolVessel.',
+     'Code review: UI'),
+    ('feature', '-', 'Front Desk', 'working', 'Property verification / caller vetting',
+     'Tools page: create/list property-authority verification cases, an approved-agents registry, and tool history. Clean form-based UI.',
+     'Code review: UI'),
+    ('feature', '-', 'Estimation', 'working', 'Estimate library',
+     'Save/list/compare estimate runs, export HTML/JSON/PDF, and reload a saved estimate back into the estimator.',
+     'Code review: UI'),
+    ('feature', '-', 'Estimation', 'working', 'Compare & Train calibration',
+     'Computes variance of estimate vs logged actual usage, suggests per-property multipliers, and persists CalibrationAdjustment that feeds back into pricing. The learning loop closes.',
+     'Code review: services'),
+    ('feature', '-', 'Admin', 'working', 'Admin cost editor',
+     'Editable grids for expenses and chemical products with price history, written straight back to the DB.',
+     'Code review: UI'),
+    ('feature', '-', 'UI', 'working', 'Operations dashboard',
+     'KPI metrics (accounts/properties/quotes/sync state), an operations launchpad, and LACRM + FreshBooks sync-readiness panels.',
+     'Code review: UI'),
+    ('feature', '-', 'Connectors', 'partial', 'Heritage catalog connector',
+     'Working client with remote + local-file catalog fetch and robust normalization, but DEFAULT_HERITAGE_CATALOG_URL is empty, so it falls back to a hardcoded catalog unless env-configured.',
+     'Code review: services'),
+    ('feature', '-', 'Operations', 'working', 'Diagnostics pages',
+     'Integration / environment / text-quality health dashboards that probe local services and export JSON snapshots.',
+     'Code review: UI'),
+    ('feature', '-', 'Connectors', 'stub', 'Skimmer connector',
+     'Referenced in default source systems, but client.py is an empty placeholder. It implies a capability that does not exist.',
+     'Code review: services'),
+
+    # ---- CODE HEALTH FINDINGS -------------------------------------------
+    ('health', 'P0', 'Security', 'open', 'No authentication or authorization anywhere in the API',
+     'Grep confirms zero Depends/Security/middleware/CORS across app/api. Every endpoint is public, including admin/bootstrap (re-seeds the DB) and the live-write sync + OAuth-refresh endpoints. Top risk for any deployment.',
+     'Code review: API'),
+    ('health', 'P0', 'Methodology', 'open', 'routing_bridge_* subsystem implements nothing',
+     '~32 route+service files, ~4,444 LOC, 70-80% verbatim-duplicated boilerplate. Every file returns a JSON report attesting that it did nothing. The real safety gate exists once, correctly, in front_desk. Highest-leverage deletion available.',
+     'Code review: services/API'),
+    ('health', 'P0', 'Methodology', 'open', 'Phase-ladder ceremony dominates the repo',
+     '~8,000 generated files; 2,035 of 2,060 commits are "Phase NN Step NN"; ~99% of test files only assert "file exists / string present"; 1,598 backup folders; ~993 installer scripts. Buries the real product and makes git log/bisect/search useless.',
+     'Code review: methodology'),
+    ('health', 'P0', 'UI', 'open', '~2,000 auto-generated packet pages pollute the sidebar',
+     'ui/pages holds ~2,046 files; only ~16 are real. The Phase packet pages do not even import app.* -- they print a static safety block. They drown the real pages in the Streamlit nav.',
+     'Code review: UI'),
+    ('health', 'P1', 'Data', 'open', 'SQLite not hardened for concurrency',
+     'The engine sets check_same_thread=False but no WAL journal mode, no busy_timeout, no pool. Concurrent webhook writes will hit "database is locked". The most likely production failure mode.',
+     'Code review: API'),
+    ('health', 'P1', 'API', 'open', 'No dependency injection for DB sessions',
+     'get_session() exists but no route uses it; there are ~200 hand-rolled "with Session(engine)" blocks. Blocks request-scoped transactions, test overrides, and transaction middleware.',
+     'Code review: API'),
+    ('health', 'P1', 'Data Model', 'open', 'No foreign keys, no enums, mixed datetimes',
+     'Every relationship is a bare indexed int (no FK, no referential integrity, every join is a manual second query). Status fields are free-text strings (a typo creates an invalid state). Naive utcnow in models vs aware now(UTC) in newer code.',
+     'Code review: API'),
+    ('health', 'P1', 'Security', 'open', 'Secrets stored in plaintext',
+     'FreshBooks OAuth access/refresh tokens are written unencrypted to data/freshbooks_oauth_tokens.json; webhook secrets are persisted as plaintext SystemSetting rows.',
+     'Code review: API'),
+    ('health', 'P1', 'Services', 'open', 'Per-row commits inside loops',
+     'Services commit after each row inside batch loops (front_desk apply, commercial). A partial failure leaves a half-written batch with no surrounding transaction or rollback.',
+     'Code review: services'),
+    ('health', 'P1', 'Security', 'open', 'RingCentral webhook is unauthenticated',
+     'push_ringcentral_event accepts any payload with no signature/secret check, unlike the signed FreshBooks/LACRM webhooks. An open ingestion endpoint.',
+     'Code review: API'),
+    ('health', 'P1', 'Testing', 'open', 'Test signal-to-noise ~1.3%; no CI',
+     '~2,028 of ~2,053 tests only check file existence / marker strings. The ~26 real behavioral tests that exist are good (heater math, live-write-blocked), but no CI runs them, so thousands of meaningless green checks hide whether the real ones pass.',
+     'Code review: methodology'),
+    ('health', 'P1', 'Maintainability', 'open', 'front_desk.py is a 1,514-line god module',
+     'Mixes mojibake repair, SMS review, candidate scoring, LACRM apply gating, and audit export. Should split into sms_review / contact_matching / lacrm_apply / text_quality.',
+     'Code review: services'),
+    ('health', 'P2', 'Maintainability', 'open', 'Business data hardcoded in source',
+     '~1,000 lines of literal pricing/catalog dicts in heater_quote.py plus magic seed coefficients in bootstrap.py. Adding a chemical requires editing two dicts (alias_map coupling). Belongs in DB/config, where the infra already exists.',
+     'Code review: services'),
+    ('health', 'P2', 'UI', 'open', 'No error handling around UI DB writes',
+     'The DB-direct pages (admin costs, estimators, even the 86KB quote workflow) have no try/except around commits; a bad cast surfaces as a raw Streamlit traceback.',
+     'Code review: UI'),
+    ('health', 'P2', 'UI', 'open', 'No shared UI helper module',
+     'sys.path bootstrap + Session(engine) + bridge-probe code are copy-pasted into every page. A ui/_shared.py (page_header, db_session, bridge_get) would deduplicate broadly.',
+     'Code review: UI'),
+    ('health', 'P2', 'API', 'open', 'Untyped dict request bodies',
+     'tools.py and connectors.py accept "payload: dict" with no Pydantic schema, bypassing validation. reports.py parses dates with no try/except, so bad input is an unhandled 500.',
+     'Code review: API'),
+    ('health', 'P2', 'Performance', 'open', 'Counts load all rows into memory',
+     'connectors.py counts via len(list(session.exec(select(model)).all())) and pulls all raw+normalized rows just to bucket them. Will not scale.',
+     'Code review: API'),
+    ('health', 'P2', 'Cleanup', 'open', 'Misleading lazy imports & dead code',
+     '"from datetime import timedelta" placed after the function that uses it (lacrm_sync, freshbooks_sync); discarded query results in front_desk; estimator.py service file misplaced inside ui/pages.',
+     'Code review: services/UI'),
+    ('health', 'P2', 'Safety', 'open', '"Safety" is inert marker strings, not controls',
+     'planning_only=true and friends are literals that tests only check for presence; they gate nothing at runtime. Real safety is the separate confirm_live_write mechanism. Replace marker tests with tests against the real guard.',
+     'Code review: methodology'),
+    ('health', 'P3', 'UI', 'open', 'Inconsistent set_page_config',
+     'Pages 1-10 omit it; 11-17 set it, leading to inconsistent titles and a double-call risk across navigation.',
+     'Code review: UI'),
+    ('health', 'P3', 'Cleanup', 'open', 'Two API entrypoints + partial model registration',
+     'app.py wires ~30 routers; main.py re-exports. models/__init__ omits 3 modules that are registered defensively by side-effect imports in app.py -- forget the import and those tables silently never get created.',
+     'Code review: API'),
+
+    # ---- IDEAS & ROADMAP -------------------------------------------------
+    # Foundation / cleanup
+    ('idea', 'P0', 'Methodology', 'proposed', 'Retire the phase ladder; archive artifacts out of the live tree',
+     'Freeze Phase 40+. Move scripts/p*_s*, tests/test_p*_s*, packet docs, and ui/pages/*Phase*Step* into an archive/ branch or delete them. Restores usable git history, search, and bisect. Single highest-impact change.',
+     'Synthesis'),
+    ('idea', 'P0', 'Cleanup', 'proposed', 'Collapse routing_bridge_* to one guarded module + one real client',
+     'Replace ~32 files with one bridge_routing module reusing the existing confirm_live_write gate, plus one real urllib client mirroring lacrm/client.py. Removes ~4,000 LOC of dead weight with no loss of capability.',
+     'Synthesis'),
+    ('idea', 'P0', 'Security', 'proposed', 'Add an API auth layer before any deployment',
+     'API-key Depends on all mutating/admin/sync routes; gate admin/bootstrap and live-write hardest. Add signature verification to the RingCentral webhook to match FreshBooks/LACRM.',
+     'Code review: API'),
+    ('idea', 'P1', 'Infra', 'proposed', 'Add CI (GitHub Action running pytest on PR)',
+     'Would have made the ladder emptiness obvious. Run the real behavioral tests on every PR; treat existence-check stubs as non-signal or delete them.',
+     'Code review: methodology'),
+    ('idea', 'P1', 'Data', 'proposed', 'Postgres + Alembic migration path',
+     'Phase A of the project own docs roadmap, still undone after 39 phases. Move off single-file SQLite and add schema versioning. Interim: harden SQLite with WAL + busy_timeout.',
+     'docs roadmap + review'),
+    ('idea', 'P1', 'API', 'proposed', 'Standardize DB access on Depends(get_session)',
+     'Convert get_session to a generator dependency and replace the ~200 inline Session(engine) blocks. Unlocks request-scoped transactions and test overrides.',
+     'Code review: API'),
+    # Product features (market-benchmarked)
+    ('idea', 'P1', 'Chemistry', 'proposed', 'LSI water-balance & chemical-dosing engine',
+     'Add a Langelier Saturation Index calc (pH, temp, calcium hardness, alkalinity, CYA, TDS) with auto dosing recommendations and out-of-range alerts. This is THE feature that separates pool-specific software from generic field-service tools in 2026.',
+     'Market research'),
+    ('idea', 'P1', 'Operations', 'proposed', 'Route optimization & scheduling',
+     'GPS-aware route building to maximize pools serviced per day. Notably, market leader Skimmer lacks this, so it is a real differentiation opportunity. Pairs with job-duration modeling.',
+     'Market research'),
+    ('idea', 'P1', 'Billing', 'proposed', 'Recurring / automated billing',
+     'Automated recurring invoices and payments for maintenance contracts (a 2026 must-have). Build on the existing FreshBooks integration.',
+     'Market research'),
+    ('idea', 'P2', 'Customer', 'proposed', 'Customer portal',
+     'Self-serve portal: service history, water-chemistry readings, invoices/payments, and real-time service updates.',
+     'Market research'),
+    ('idea', 'P2', 'Field Ops', 'proposed', 'Mobile technician app (PWA)',
+     'On-route tech app: route list, photo capture, on-site chemical readings, payment capture. Feeds the LSI engine and the customer portal.',
+     'Market research'),
+    ('idea', 'P2', 'Connectors', 'proposed', 'QuickBooks sync',
+     'The most-requested accounting integration in the category; complements FreshBooks for businesses on QuickBooks Online.',
+     'Market research'),
+    ('idea', 'P2', 'Analytics', 'proposed', 'Route & customer profitability analytics',
+     'Which routes and customers actually make money: margin by route, by tech, by service type. The cost model already exists to support this.',
+     'Market research'),
+    # AI / automation (2026 trends)
+    ('idea', 'P1', 'AI', 'proposed', 'LLM front-desk agent',
+     'Autonomous inbound SMS handling: parse intent, propose a booking, confirm, and send 24h/2h reminders. Builds directly on the existing RingCentral -> front-desk -> LACRM skeleton. Gartner expects 40% of enterprise apps to embed task agents by end of 2026.',
+     'Market research + AI trends'),
+    ('idea', 'P2', 'AI', 'proposed', 'Job-duration modeling for smart scheduling',
+     'Learn service-time per property type from historical runs so scheduling uses real durations instead of fixed windows. The data is already captured in estimate/calibration history.',
+     'AI trends'),
+    ('idea', 'P2', 'AI', 'proposed', 'AI extraction from inbound SMS',
+     'Strengthen the existing name/address/intent extraction with an LLM to raise contact-match confidence and cut operator load.',
+     'AI trends + review'),
+    ('idea', 'P3', 'AI', 'proposed', 'Predictive maintenance & proactive quotes',
+     'Use equipment age + service logs to flag likely failures and auto-draft proactive replacement quotes (e.g. a heater nearing end of life).',
+     'AI trends'),
+    # Connectors / completeness
+    ('idea', 'P2', 'Connectors', 'proposed', 'Outbound RingCentral client',
+     'Add a RingCentral API client so the platform can send SMS and place calls, closing the comms loop (currently inbound-only).',
+     'Code review: services'),
+    ('idea', 'P2', 'Connectors', 'proposed', 'Finish or remove the Skimmer connector',
+     'Either implement the Skimmer client or drop it from default source systems so it stops implying a capability that is not there.',
+     'Code review: services'),
+    # Data model / quality
+    ('idea', 'P1', 'Data Model', 'proposed', 'Add FKs, enums, and timezone-aware timestamps',
+     'Add foreign_key= to parent links, str-backed Enums (or CHECK constraints) for recurring status fields, and standardize on datetime.now(UTC). Removes a whole class of silent data bugs.',
+     'Code review: API'),
+    ('idea', 'P2', 'Maintainability', 'proposed', 'Move hardcoded catalogs/coefficients into DB/config',
+     'Relocate the heater catalog and seed coefficients from source into the existing system_settings / BaselineModelVersion infra. Eliminates the ~1,000-line literal dicts and the dual-edit alias coupling.',
+     'Code review: services'),
+    ('idea', 'P1', 'Services', 'proposed', 'Wrap multi-write operations in single transactions',
+     'Replace per-row commits in loops with one transaction plus rollback, so a partial batch failure rolls back cleanly.',
+     'Code review: services'),
+    ('idea', 'P2', 'UI', 'proposed', 'Add a shared UI helper module + error wrapping',
+     'ui/_shared.py with inject_root_path(), db_session(), page_header(title, caption), and bridge_get(); wrap DB writes in try/except st.error. Deduplicates boilerplate and stops raw tracebacks.',
+     'Code review: UI'),
+
+    # ---- LUMEN INTEGRATION (read-only architecture pass, 2026-06-30) -----
+    ('idea', 'P2', 'Lumen Integration', 'proposed', 'Prerequisite: deploy the Lumen backend',
+     "Lumen's FastAPI + Postgres + Temporal backend is code-complete but never deployed. Nothing connects until it runs (backend/DEPLOY_P0.md, Railway). All pool <-> Lumen integration is gated on this.",
+     'Lumen architecture pass'),
+    ('idea', 'P2', 'Lumen Integration', 'proposed', 'Phase 0: add the pool business as a Lumen business_id (zero code)',
+     "Point Lumen's existing FreshBooks + LACRM connectors at the pool business's accounts. Lumen then ingests pool invoices/estimates/contacts/leads as canonical objects and its attention/brief engine lights up. No new code; money/CRM source of truth stays in FreshBooks + LACRM.",
+     'Lumen architecture pass'),
+    ('idea', 'P2', 'Lumen Integration', 'proposed', 'Phase 1: build a pool -> Lumen connector/webhook',
+     "For data FreshBooks/LACRM do not carry: service jobs/visits, pool estimate detail, RingCentral comms. Follow Lumen's FareHarbor template -> raw_vault -> normalize -> canonical_objects (jobs -> Booking, comms -> interaction) under the pool business_id. This is the path that feeds Lumen's intelligence engine.",
+     'Lumen architecture pass'),
+    ('idea', 'P3', 'Lumen Integration', 'proposed', 'Phase 2: pull Lumen intelligence into the pool UI',
+     "Surface Lumen attention events (overdue invoices, stale quotes), approval requests, and the daily brief inside the pool dashboard via GET /api/sync/pull or the events/approvals endpoints.",
+     'Lumen architecture pass'),
+    ('idea', 'P2', 'Lumen Integration', 'proposed', 'Decide a single writer per shared external system',
+     "Both apps can write to FreshBooks/LACRM. Pick ONE writer per system to avoid conflicts. Recommended: the pool platform writes (it is the operational system of record); Lumen reads.",
+     'Lumen architecture pass'),
+    ('idea', 'P3', 'Lumen Integration', 'proposed', 'Use LACRM as the shared contact source of truth',
+     "Lumen dedups contacts by email per business_id. Keep LACRM as the canonical customer record both apps sync to, and assign the pool business one stable business_id used everywhere.",
+     'Lumen architecture pass'),
+    ('idea', 'P3', 'Lumen Integration', 'proposed', 'Auth: obtain a Lumen JWT for the pool platform',
+     "Pool platform authenticates to Lumen via OWNER_API_KEY -> POST /api/auth/token, then calls sync/events/approvals endpoints with the Bearer token.",
+     'Lumen architecture pass'),
+    ('idea', 'P3', 'Lumen Integration', 'proposed', 'Do not push pool data as an opaque Lumen sync store',
+     "Pushing pool data as a pool_service_v1 store via POST /api/sync/push is fastest but the data stays a blob and never reaches Lumen's canonical/intelligence layer. Use only for prototyping; connector -> canonical is the real design.",
+     'Lumen architecture pass'),
+]
+
+_SEED_COLUMNS = ('category', 'priority', 'area', 'status', 'title', 'detail', 'source')
+
+
+# --------------------------------------------------------------------------
+# Persistence helpers
+# --------------------------------------------------------------------------
+def _spec_to_kwargs(spec: tuple) -> dict:
+    return dict(zip(_SEED_COLUMNS, spec))
+
+
+def seed_if_empty(session: Session) -> int:
+    """Populate the tracker with the default review on first run only."""
+    if session.exec(select(DevItem)).first() is not None:
+        return 0
+    for spec in DEFAULT_DEV_ITEMS:
+        session.add(DevItem(**_spec_to_kwargs(spec)))
+    session.commit()
+    return len(DEFAULT_DEV_ITEMS)
+
+
+def add_missing_defaults(session: Session) -> int:
+    """Non-destructively re-add any default item whose title is not already present."""
+    existing_titles = {row.title for row in session.exec(select(DevItem)).all()}
+    added = 0
+    for spec in DEFAULT_DEV_ITEMS:
+        kwargs = _spec_to_kwargs(spec)
+        if kwargs['title'] not in existing_titles:
+            session.add(DevItem(**kwargs))
+            added += 1
+    if added:
+        session.commit()
+    return added
+
+
+def load_items(session: Session, category: str) -> list[DevItem]:
+    rows = list(session.exec(select(DevItem).where(DevItem.category == category)).all())
+    if category == 'feature':
+        rows.sort(key=lambda r: (FEATURE_STATUS_RANK.get(r.status, 9), r.area, r.title))
+    else:
+        rows.sort(key=lambda r: (PRIORITY_RANK.get(r.priority, 9), r.status, r.area))
+    return rows
+
+
+def persist_edits(session: Session, category: str, original: list[DevItem], edited: pd.DataFrame) -> tuple[int, int, int]:
+    """Upsert the edited grid back into the DB. Returns (updated, inserted, deleted)."""
+    by_id = {item.id: item for item in original}
+    seen: set[int] = set()
+    updated = inserted = 0
+
+    for _, row in edited.iterrows():
+        title = str(row.get('title') or '').strip()
+        if not title:
+            continue  # blank title -> treated as a removed row
+        rid = row.get('id')
+        area = (str(row.get('area') or 'General').strip() or 'General')
+        status = str(row.get('status') or DEFAULT_STATUS[category]).strip()
+        priority = str(row.get('priority') or 'P2').strip()
+        detail = str(row.get('detail') or '')
+        source = str(row.get('source') or '')
+
+        if pd.notna(rid) and int(rid) in by_id:
+            item = by_id[int(rid)]
+            changed = (
+                item.title != title or item.area != area or item.status != status
+                or item.priority != priority or item.detail != detail or item.source != source
+            )
+            if changed:
+                item.title, item.area, item.status = title, area, status
+                item.priority, item.detail, item.source = priority, detail, source
+                item.updated_at = datetime.utcnow()
+                session.add(item)
+                updated += 1
+            seen.add(int(rid))
+        else:
+            session.add(DevItem(
+                category=category, title=title, area=area, status=status,
+                priority=priority, detail=detail, source=source or 'manual',
+            ))
+            inserted += 1
+
+    deleted = 0
+    for rid, item in by_id.items():
+        if rid not in seen:
+            session.delete(item)
+            deleted += 1
+
+    session.commit()
+    return updated, inserted, deleted
+
+
+# --------------------------------------------------------------------------
+# Page
+# --------------------------------------------------------------------------
+create_db_and_tables()
+with Session(engine) as _seed_session:
+    seed_if_empty(_seed_session)
+
+st.title('Development Tracker')
+st.caption('Living record of what works, what needs fixing, and what to build next. Edit any cell, add rows, then Save.')
+
+with Session(engine) as session:
+    all_items = list(session.exec(select(DevItem)).all())
+
+features = [i for i in all_items if i.category == 'feature']
+health = [i for i in all_items if i.category == 'health']
+ideas = [i for i in all_items if i.category == 'idea']
+
+working = sum(1 for i in features if i.status == 'working')
+health_open = sum(1 for i in health if i.status in ('open', 'in_progress'))
+p0_open = sum(1 for i in health if i.status in ('open', 'in_progress') and i.priority == 'P0')
+ideas_open = sum(1 for i in ideas if i.status in ('proposed', 'planned', 'in_progress'))
+
+c1, c2, c3, c4, c5 = st.columns(5)
+c1.metric('Working features', working, help='Features with status "working" (partial/stub excluded).')
+c2.metric('Health findings open', health_open, help='Code-health items still open or in progress.')
+c3.metric('P0 critical open', p0_open, help='Critical findings (security, ceremony, dead subsystems) still open.')
+c4.metric('Ideas in play', ideas_open, help='Roadmap ideas proposed, planned, or in progress.')
+c5.metric('Total tracked', len(all_items), help='All tracked items across every category.')
+
+st.divider()
+
+tab_overview, tab_features, tab_health, tab_ideas, tab_add = st.tabs(
+    ['Overview & assessment', 'Working features', 'Code health', 'Ideas & roadmap', 'Add item']
+)
+
+
+def render_category_tab(category: str) -> None:
+    title, blurb = CATEGORY_META[category]
+    st.subheader(title)
+    st.caption(blurb)
+
+    with Session(engine) as sess:
+        items = load_items(sess, category)
+
+    if items:
+        df = pd.DataFrame([{
+            'id': it.id,
+            'priority': it.priority,
+            'status': it.status,
+            'area': it.area,
+            'title': it.title,
+            'detail': it.detail,
+            'source': it.source,
+        } for it in items])
+    else:
+        df = pd.DataFrame(columns=['id', 'priority', 'status', 'area', 'title', 'detail', 'source'])
+
+    edited = st.data_editor(
+        df,
+        width='stretch',
+        hide_index=True,
+        num_rows='dynamic',
+        key=f'editor_{category}',
+        column_config={
+            'id': st.column_config.NumberColumn('ID', disabled=True, width='small'),
+            'priority': st.column_config.SelectboxColumn('Priority', options=PRIORITY_OPTIONS, width='small'),
+            'status': st.column_config.SelectboxColumn('Status', options=STATUS_BY_CATEGORY[category], width='small'),
+            'area': st.column_config.TextColumn('Area', width='small'),
+            'title': st.column_config.TextColumn('Title', width='large'),
+            'detail': st.column_config.TextColumn('Detail', width='large'),
+            'source': st.column_config.TextColumn('Source', width='medium'),
+        },
+    )
+
+    col_save, col_note = st.columns([1, 4])
+    with col_save:
+        if st.button('Save changes', type='primary', key=f'save_{category}'):
+            with Session(engine) as sess:
+                items = load_items(sess, category)  # reload originals for a clean diff
+                updated, inserted, deleted = persist_edits(sess, category, items, edited)
+            st.success(f'Saved. {updated} updated, {inserted} added, {deleted} removed.')
+            st.rerun()
+    with col_note:
+        st.caption('Tip: edit cells inline, add rows at the bottom, or clear a Title to remove a row. New rows inherit this tab category.')
+
+
+with tab_features:
+    render_category_tab('feature')
+
+with tab_health:
+    render_category_tab('health')
+
+with tab_ideas:
+    render_category_tab('idea')
+
+with tab_add:
+    st.subheader('Add a tracked item')
+    st.caption('Capture a new feature, finding, or idea the moment you think of it.')
+    with st.form('add_item_form', clear_on_submit=True):
+        fa, fb, fc = st.columns(3)
+        with fa:
+            in_category = st.selectbox('Category', options=['idea', 'health', 'feature'],
+                                       format_func=lambda c: CATEGORY_META[c][0])
+        with fb:
+            in_priority = st.selectbox('Priority', options=PRIORITY_OPTIONS, index=2)
+        with fc:
+            in_area = st.text_input('Area', value='General')
+        in_title = st.text_input('Title')
+        in_detail = st.text_area('Detail', height=100)
+        in_source = st.text_input('Source', value='user')
+        submitted = st.form_submit_button('Add item', type='primary')
+        if submitted:
+            if not in_title.strip():
+                st.error('Title is required.')
+            else:
+                with Session(engine) as sess:
+                    sess.add(DevItem(
+                        category=in_category,
+                        title=in_title.strip(),
+                        area=(in_area.strip() or 'General'),
+                        status=DEFAULT_STATUS[in_category],
+                        priority=in_priority,
+                        detail=in_detail.strip(),
+                        source=(in_source.strip() or 'user'),
+                    ))
+                    sess.commit()
+                st.success(f'Added to {CATEGORY_META[in_category][0]}.')
+                st.rerun()
+
+    st.divider()
+    st.markdown('**Maintenance**')
+    mcol1, mcol2 = st.columns(2)
+    with mcol1:
+        if st.button('Re-add default review items (non-destructive)'):
+            with Session(engine) as sess:
+                added = add_missing_defaults(sess)
+            st.success(f'Added {added} missing default item(s).' if added else 'All default items already present.')
+            st.rerun()
+    with mcol2:
+        export_df = pd.DataFrame([{
+            'category': i.category, 'priority': i.priority, 'status': i.status,
+            'area': i.area, 'title': i.title, 'detail': i.detail, 'source': i.source,
+        } for i in all_items])
+        st.download_button(
+            'Export all items (CSV)',
+            data=export_df.to_csv(index=False).encode('utf-8'),
+            file_name='development_tracker.csv',
+            mime='text/csv',
+        )
+
+
+with tab_overview:
+    st.subheader('Code-appropriateness assessment')
+    st.caption('Verdict from a full four-part code review on 2026-06-30, with 2026 market and AI grounding.')
+
+    st.markdown(
+        '**Bottom line:** a genuinely good small product is buried under an oversized build process. '
+        'The estimation engine, heater-sizing math, quote-workflow state machine, and the FreshBooks/LACRM '
+        'connectors are real, thoughtful engineering. The problem is not the product code; it is the '
+        '"phase ladder" wrapped around it, which generated roughly 8,000 files and 2,000+ commits that add '
+        'no functionality, plus a missing security layer.'
+    )
+
+    st.markdown('**The three things that matter most**')
+    st.markdown(
+        '1. **Retire the phase ladder.** ~99% of the file count and git history is ceremony '
+        '(4 files per "step", 120 steps per phase, each a renamed constant). It makes the repo nearly '
+        'unsearchable and hides the real roadmap. Archive or delete it.\n'
+        '2. **Add authentication.** There is no auth anywhere in the API. Every endpoint, including the '
+        'DB re-seed and live-write sync, is public. This must land before any deployment.\n'
+        '3. **Collapse routing_bridge_*.** ~32 files and ~4,444 LOC that implement nothing but JSON '
+        'attestations that they implement nothing. One guarded module plus one real client replaces all of it.'
+    )
+
+    st.markdown('**Architecture grades by area**')
+    grades = pd.DataFrame([
+        {'Area': 'Estimation engine', 'Grade': 'A-', 'Note': 'Data-driven, versioned, closes a calibration loop. Magic seed numbers.'},
+        {'Area': 'Quote workflow', 'Grade': 'A-', 'Note': 'Clean state machine, enforced transitions, good Pydantic validation.'},
+        {'Area': 'Connectors (FB/LACRM)', 'Grade': 'B+', 'Note': 'Real clients, signed webhooks, dry-run gating. Plaintext tokens.'},
+        {'Area': 'Front desk / comms', 'Grade': 'B', 'Note': 'Works; god module; RingCentral is inbound-only.'},
+        {'Area': 'API design', 'Grade': 'C', 'Note': 'Clean route/service split, but no auth, no DI, some untyped bodies.'},
+        {'Area': 'Data model', 'Grade': 'C', 'Note': 'Pragmatic and indexed, but no FKs/enums, CSV-in-column, naive datetimes.'},
+        {'Area': 'Security', 'Grade': 'D', 'Note': 'No auth, plaintext secrets, one unsigned webhook.'},
+        {'Area': 'Testing', 'Grade': 'D', 'Note': 'Real tests are excellent but ~1.3% of the suite; no CI.'},
+        {'Area': 'UI / Streamlit', 'Grade': 'C+', 'Note': 'Real pages are clean; ~2,000 junk pages, no error handling, no shared helpers.'},
+        {'Area': 'Build methodology', 'Grade': 'F', 'Note': 'Phase ladder is process-as-code; generates files, not features.'},
+    ])
+    st.dataframe(grades, width='stretch', hide_index=True)
+
+    st.markdown('**Suggested order of work**')
+    st.markdown(
+        '1. Archive the phase ladder and the routing_bridge_* tree (unblocks everything else).\n'
+        '2. Add API auth + CI running the real tests.\n'
+        '3. Harden SQLite (WAL + busy_timeout), then plan the Postgres + Alembic move.\n'
+        '4. Standardize DB sessions on Depends(get_session); add FKs/enums.\n'
+        '5. Build the LSI chemistry engine -- the highest-value product feature.\n'
+        '6. Layer in route optimization, recurring billing, and the LLM front-desk agent.'
+    )
+
+    st.info(
+        'Market & AI sources (2026): PoolDial and Skimmer software comparisons; PoolFounder buying guide; '
+        'Makula and FieldCamp on AI in field service; Orenda on the Langelier Saturation Index. '
+        'LSI chemical tracking is the feature that most separates pool-specific software from generic tools; '
+        'route optimization is a gap even in the market leader (Skimmer).'
+    )
