@@ -12,8 +12,10 @@ from sqlmodel import Session, select
 
 from app.core.database import engine
 from app.models.tables import ChemicalProduct, ExpenseItem, ProductPriceHistory
+from ui._shared import configure_page, page_header
 
-st.title("Admin Costs")
+configure_page('Admin Costs', icon='🧾')
+page_header('Admin Costs', 'Shared overhead and chemical-product costs that feed estimating and the true cost per hour.', icon='🧾')
 
 with Session(engine) as session:
     expense_rows = list(session.exec(select(ExpenseItem).order_by(ExpenseItem.category, ExpenseItem.name)).all())

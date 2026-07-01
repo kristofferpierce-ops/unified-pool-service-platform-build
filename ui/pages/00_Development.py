@@ -20,7 +20,7 @@ configure_page('Development Tracker', icon='🧱')
 
 # Current build stamp (bump when a new batch of work ships). Modeled on Lumen's
 # DEV_VERSION: every changelog entry is tagged with the build it shipped in.
-DEV_BUILD = '2026.06.30-k'
+DEV_BUILD = '2026.06.30-l'
 
 # --------------------------------------------------------------------------
 # Vocabularies
@@ -157,8 +157,8 @@ DEFAULT_DEV_ITEMS = [
     ('health', 'P0', 'UI', 'resolved', '~2,000 auto-generated packet pages pollute the sidebar',
      'ui/pages held ~2,046 files; only ~26 are real. The Phase packet pages do not even import app.* -- they print a static safety block. RESOLVED 2026-06-30: ui/pages reduced to 26 live feature pages; all bridge/Phase packet pages archived.',
      'Code review: UI'),
-    ('health', 'P1', 'Data', 'open', 'SQLite not hardened for concurrency',
-     'The engine sets check_same_thread=False but no WAL journal mode, no busy_timeout, no pool. Concurrent webhook writes will hit "database is locked". The most likely production failure mode.',
+    ('health', 'P1', 'Data', 'resolved', 'SQLite not hardened for concurrency',
+     'RESOLVED 2026.06.30-l: app/core/database.py sets WAL + busy_timeout=5000 + foreign_keys=ON + synchronous=NORMAL on every SQLite connection. Concurrent writers wait on a lock instead of raising "database is locked".',
      'Code review: API'),
     ('health', 'P1', 'API', 'open', 'No dependency injection for DB sessions',
      'get_session() exists but no route uses it; there are ~200 hand-rolled "with Session(engine)" blocks. Blocks request-scoped transactions, test overrides, and transaction middleware.',
@@ -188,7 +188,7 @@ DEFAULT_DEV_ITEMS = [
      'The DB-direct pages (admin costs, estimators, even the 86KB quote workflow) have no try/except around commits; a bad cast surfaces as a raw Streamlit traceback.',
      'Code review: UI'),
     ('health', 'P2', 'UI', 'in_progress', 'No shared UI helper module',
-     'sys.path bootstrap + Session(engine) + bridge-probe code are copy-pasted into every page. IN PROGRESS 2026.06.30-d: ui/_shared.py created (configure_page, page_header, section, db_session) and applied to Dashboard, Development, and Cost of Business. Remaining pages still need migration.',
+     'ui/_shared.py (configure_page, page_header, section, db_session) now used by all built pages plus 6 migrated core pages (Admin Costs, Accounts & Properties, Invoice Review, Compare & Train, Tools, Estimate Library) as of 2026.06.30-l. Remaining to migrate: estimators (4,5), quote/heater/replaster (11-13), and routing/diagnostic pages (14-17, 22-36).',
      'Code review: UI'),
     ('health', 'P2', 'API', 'open', 'Untyped dict request bodies',
      'tools.py and connectors.py accept "payload: dict" with no Pydantic schema, bypassing validation. reports.py parses dates with no try/except, so bad input is an unhandled 500.',
@@ -220,8 +220,8 @@ DEFAULT_DEV_ITEMS = [
     ('idea', 'P0', 'Security', 'proposed', 'Add an API auth layer before any deployment',
      'API-key Depends on all mutating/admin/sync routes; gate admin/bootstrap and live-write hardest. Add signature verification to the RingCentral webhook to match FreshBooks/LACRM.',
      'Code review: API'),
-    ('idea', 'P1', 'Infra', 'proposed', 'Add CI (GitHub Action running pytest on PR)',
-     'Would have made the ladder emptiness obvious. Run the real behavioral tests on every PR; treat existence-check stubs as non-signal or delete them.',
+    ('idea', 'P1', 'Infra', 'done', 'Add CI (GitHub Action running pytest on PR)',
+     'DONE 2026.06.30-l: .github/workflows/tests.yml runs pytest on push + pull_request. The 111 real behavioral tests now gate every change.',
      'Code review: methodology'),
     ('idea', 'P1', 'Data', 'proposed', 'Postgres + Alembic migration path',
      'Phase A of the project own docs roadmap, still undone after 39 phases. Move off single-file SQLite and add schema versioning. Interim: harden SQLite with WAL + busy_timeout.',
@@ -367,6 +367,9 @@ DEFAULT_LOG_ENTRIES = [
     # ---- Build 2026.06.30-k : expected-vs-actual variance ---------------
     ('2026.06.30-k', 'shipped', 'Intelligence', 'Expected-vs-actual labor variance (the core brain, dimension 1)',
      'app/services/variance.py compares priced visit time (the vessel\'s minutes_on_site) against Skimmer-logged actual minutes, valued at the true $/hour: per-visit and per-property variance, chronic-overrun flags, and the unpriced-labor cost that silently erodes margin. New Variance page (25). Demo: +62 minutes / ~$48 of unpriced labor across the fixture visits, both properties flagged. First variance dimension; chemical-usage and margin variance read the same actuals next. 2 tests (109 -> 111 passing).'),
+    # ---- Build 2026.06.30-l : foundation hardening batch ----------------
+    ('2026.06.30-l', 'infra', 'Foundation', 'SQLite WAL hardening + CI + core-page UI polish',
+     'Low-input foundation batch. app/core/database.py now applies PRAGMA journal_mode=WAL + busy_timeout=5000 + foreign_keys=ON + synchronous=NORMAL on every SQLite connection, so concurrent UI/connector/job writers wait on a lock instead of raising "database is locked" (the most likely production failure mode). Added .github/workflows/tests.yml running pytest on push/PR. Migrated 6 core operational pages (Admin Costs, Accounts & Properties, Invoice Review, Compare & Train, Tools, Estimate Library) to the shared configure_page/page_header theme. 111 tests pass; all touched pages render clean.'),
 ]
 
 _LOG_COLUMNS = ('build', 'kind', 'area', 'title', 'summary')

@@ -20,9 +20,10 @@ from app.services.property_verification import (
     list_verification_cases,
 )
 from app.services.tools import list_tools
+from ui._shared import configure_page, page_header
 
-st.title("Tools")
-st.caption("Operational tools that sit beside the core estimating engines and can grow over time without corrupting baseline pricing or training data.")
+configure_page('Tools', icon='🛠️')
+page_header('Tools', 'Operational tools beside the core estimating engines (property verification, approved agents).', icon='🛠️')
 
 with Session(engine) as session:
     tools = list_tools(session)

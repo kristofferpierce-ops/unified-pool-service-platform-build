@@ -14,8 +14,10 @@ from app.core.database import engine
 from app.models.tables import InvoiceLineStaging
 from app.services.invoice_ingestion import approve_staged_line, bucket_counts, ingest_invoice_document, reject_staged_line
 from app.utils.serialization import loads
+from ui._shared import configure_page, page_header
 
-st.title("Invoice Review")
+configure_page('Invoice Review', icon='📥')
+page_header('Invoice Review', 'Staged supplier-invoice lines: review, match, and approve to feed the price ledger.', icon='📥')
 
 with Session(engine) as session:
     vendor_name = st.text_input("Vendor name")

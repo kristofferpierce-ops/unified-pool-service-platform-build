@@ -12,8 +12,10 @@ from sqlmodel import Session, select
 
 from app.core.database import engine
 from app.models.tables import Account, PoolVessel, Property
+from ui._shared import configure_page, page_header
 
-st.title("Accounts & Properties")
+configure_page('Accounts & Properties', icon='🏠')
+page_header('Accounts & Properties', 'Customer accounts, their properties, and pool vessels.', icon='🏠')
 
 with Session(engine) as session:
     st.subheader("Create account")

@@ -15,6 +15,7 @@ from sqlmodel import Session
 from app.core.database import engine
 from app.services.estimate_reporting import render_estimate_html, render_estimate_json, render_estimate_pdf
 from app.services.estimate_workspace import delete_saved_run, get_saved_estimate_bundle, list_saved_estimate_runs
+from ui._shared import configure_page, page_header
 
 PREFILL_KEY = 'commercial_estimator_prefill'
 LIBRARY_KEY = 'estimate_library_selected_run_id'
@@ -24,8 +25,8 @@ def _money(value: float) -> str:
     return f'${float(value):,.2f}'
 
 
-st.title('Estimate Library')
-st.caption('Review saved estimates, compare runs, export reports, or load a past estimate back into Commercial Estimator as a draft.')
+configure_page('Estimate Library', icon='📚')
+page_header('Estimate Library', 'Review saved estimates, compare runs, export reports, or load one back into Commercial Estimator as a draft.', icon='📚')
 
 with Session(engine) as session:
     rows = list_saved_estimate_runs(session, limit=500)

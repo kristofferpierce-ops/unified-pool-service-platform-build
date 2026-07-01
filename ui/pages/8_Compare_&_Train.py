@@ -13,8 +13,10 @@ from sqlmodel import Session, select
 from app.core.database import engine
 from app.models.tables import ChemicalUsageLog, PoolVessel, Property, ServiceLog, WaterTestLog
 from app.services.calibration import compare_estimate_to_actual, save_suggested_calibration
+from ui._shared import configure_page, page_header
 
-st.title("Compare & Train")
+configure_page('Compare & Train', icon='📊')
+page_header('Compare & Train', 'Estimate vs logged actuals: variance and calibration suggestions that feed back into pricing.', icon='📊')
 
 with Session(engine) as session:
     properties = list(session.exec(select(Property)).all())
