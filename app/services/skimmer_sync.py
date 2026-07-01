@@ -42,6 +42,7 @@ from app.models.ops_tables import (
     TechnicianAssignment,
 )
 from app.models.tables import Account, ChemicalProduct, PoolVessel, Property
+from app.services.customer_matching import resolve_customer
 
 SOURCE = 'skimmer'
 
@@ -164,16 +165,29 @@ def sync_skimmer(session: Session, client: SkimmerClient | None = None, apply: b
     result.normalized_records_new = n1 + n2 + n3 + n4 + n5
 
     if apply:
-        account = _ensure_import_account(session)
         chem_index = _chemical_index(session)
 
-        # service_location -> Property
+        # customers -> unified accounts (3-pass identity resolution)
+        cust_account: dict[str, int] = {}
+        for cust in customers:
+            res = resolve_customer(
+                session, source=SOURCE, external_id=cust['external_id'],
+                name=cust['display_name'], email=cust['email'],
+                phone=cust['phone'], company=cust['company_name'],
+            )
+            if res.account_id:
+                cust_account[cust['external_id']] = res.account_id
+
+        fallback_account = _ensure_import_account(session)
+
+        # service_location -> Property (under its customer's account)
         for sl in locations:
             ext = sl['external_id']
             if _map_get(session, 'service_location', ext):
                 continue
+            account_id = cust_account.get(sl['customer_external_id'], fallback_account.id)
             prop = Property(
-                account_id=account.id, name=sl['name'] or ext,
+                account_id=account_id, name=sl['name'] or ext,
                 address_line_1=sl['address'], city=sl['city'], state=sl['state'],
                 postal_code=sl['zip'], latitude=sl['latitude'], longitude=sl['longitude'],
                 account_type='residential',

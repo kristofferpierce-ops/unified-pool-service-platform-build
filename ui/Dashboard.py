@@ -70,6 +70,7 @@ with launch_d:
     st.page_link('pages/19_Purchasing.py', label='Purchasing', icon='🛒', help='Open purchasing intelligence: best source per product, supplier price book, and price anomaly flags.')
     st.page_link('pages/20_Assets.py', label='Assets', icon='🧰', help='Open the asset registry: track equipment through ordered → received → installed → retired, with serial numbers and per-property asset lists.')
     st.page_link('pages/21_Skimmer.py', label='Skimmer Sync', icon='🌊', help='Pull Skimmer field-ops data (work orders, chemical logs, routes) into service visits with labor and chemical actuals.')
+    st.page_link('pages/22_Customer_Matching.py', label='Customer Matching', icon='🔗', help='Reconcile Skimmer and FreshBooks customers into one account so cost and revenue join. Review and override matches here.')
     st.page_link('pages/8_Compare_&_Train.py', label='Compare + Train', icon='📊', help='Open compare and train workflows for pricing calibration and review.')
     st.page_link('pages/10_Estimate_Library.py', label='Estimate Library', icon='📚', help='Open saved estimate runs and exported reporting views.')
     st.page_link('pages/14_Bridge_Review.py', label='Bridge Review', icon='☎️', help='Open the platform-side bridge SMS review and guarded LACRM dry-run apply page.')

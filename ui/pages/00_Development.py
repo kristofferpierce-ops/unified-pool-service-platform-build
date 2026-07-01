@@ -20,7 +20,7 @@ configure_page('Development Tracker', icon='🧱')
 
 # Current build stamp (bump when a new batch of work ships). Modeled on Lumen's
 # DEV_VERSION: every changelog entry is tagged with the build it shipped in.
-DEV_BUILD = '2026.06.30-g'
+DEV_BUILD = '2026.06.30-h'
 
 # --------------------------------------------------------------------------
 # Vocabularies
@@ -128,6 +128,9 @@ DEFAULT_DEV_ITEMS = [
     ('feature', '-', 'Purchasing', 'working', 'Purchasing intelligence (best source + price anomalies)',
      'Supplier price book per product, cheapest-current-vendor recommendation with cross-vendor spread, and price-anomaly flags, computed over ProductPriceHistory (fed by invoice ingestion or manual entry). Manual price-observation entry on the page. app/services/purchasing.py + ui/pages/19_Purchasing.py; logic locked by 4 tests.',
      'Build 2026.06.30-e'),
+    ('feature', '-', 'Identity', 'working', 'Customer identity matching (3-pass)',
+     'Resolves Skimmer customers and FreshBooks clients into one account so cost and revenue join. Pass 1 exact email, pass 2 exact phone / strong fuzzy name (auto), pass 3 manual queue for ambiguous; new customers create a fresh account. Manual confirm/relink/unlink override, persisted. CustomerProfile + CustomerMatch tables; app/services/customer_matching.py + ui/pages/22_Customer_Matching.py; 5 tests.',
+     'Build 2026.06.30-h'),
     ('feature', '-', 'Assets', 'working', 'Asset lifecycle registry',
      'Tracks physical assets through ordered -> received -> installed -> retired with serial/model numbers, purchase provenance, install location (property + vessel), and warranty. Per-property asset lists; installed-base value + expiring-warranty rollups. New AssetRecord table alongside the thin legacy EquipmentAsset. app/services/assets.py + ui/pages/20_Assets.py; lifecycle locked by 3 tests.',
      'Build 2026.06.30-f'),
@@ -343,6 +346,9 @@ DEFAULT_LOG_ENTRIES = [
     # ---- Build 2026.06.30-g : Skimmer ops connector ---------------------
     ('2026.06.30-g', 'shipped', 'Connectors', 'Skimmer ops connector (client + normalizer + pipeline ingestion)',
      'Built the Skimmer connector on the raw -> normalized -> applied pipeline: SkimmerClient (skimmer-api-key header) with a fixture fallback so it runs before live creds; normalizers for customers/service-locations/bodies-of-water/work-orders/routes; and sync_skimmer() that lands service locations as Properties, bodies of water as PoolVessels, and work orders as ServiceVisits with ActualLaborFact + ActualChemicalFact + TechnicianAssignment (chemicals matched to seeded products). Idempotent. New Skimmer page (21): connection status, one-click sync, imported-visit table, run history. Drop in SKIMMER_API_KEY to go live. 4 tests (94 -> 98 passing). Unlocks route P&L + expected-vs-actual variance.'),
+    # ---- Build 2026.06.30-h : customer identity matching ----------------
+    ('2026.06.30-h', 'shipped', 'Identity', 'Three-pass customer matching engine + manual review',
+     'New CustomerProfile + CustomerMatch tables and app/services/customer_matching.py resolve external customer records (Skimmer, FreshBooks) to one internal account: pass 1 exact email auto-links, pass 2 exact phone / strong fuzzy name auto-links, pass 3 ambiguous ones land in a manual queue; genuinely new customers get a fresh account. confirm_match/unlink_match let a human override anytime and decisions persist (low-maintenance for a stable client base). Skimmer sync now resolves customers into per-customer accounts (not a catch-all) so cost lands on the right identity. New Customer Matching page (22): review queue + all-matches table + override. Phone normalized to last 10 digits. 5 tests (98 -> 103). Sets up FreshBooks revenue to join Skimmer cost.'),
 ]
 
 _LOG_COLUMNS = ('build', 'kind', 'area', 'title', 'summary')
