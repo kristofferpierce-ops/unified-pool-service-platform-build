@@ -20,7 +20,7 @@ configure_page('Development Tracker', icon='🧱')
 
 # Current build stamp (bump when a new batch of work ships). Modeled on Lumen's
 # DEV_VERSION: every changelog entry is tagged with the build it shipped in.
-DEV_BUILD = '2026.06.30-f'
+DEV_BUILD = '2026.06.30-g'
 
 # --------------------------------------------------------------------------
 # Vocabularies
@@ -119,9 +119,9 @@ DEFAULT_DEV_ITEMS = [
     ('feature', '-', 'Operations', 'working', 'Diagnostics pages',
      'Integration / environment / text-quality health dashboards that probe local services and export JSON snapshots.',
      'Code review: UI'),
-    ('feature', '-', 'Connectors', 'stub', 'Skimmer connector',
-     'Referenced in default source systems, but client.py is an empty placeholder. It implies a capability that does not exist.',
-     'Code review: services'),
+    ('feature', '-', 'Connectors', 'partial', 'Skimmer ops connector',
+     'Client (skimmer-api-key header) + normalizers + sync pipeline landing work orders as service visits with labor + chemical actuals, service locations as properties, bodies of water as vessels. Idempotent; chemicals matched to seeded products. Runs in fixture mode today (bundled sample data); set SKIMMER_API_KEY to go live. app/connectors/skimmer/* + app/services/skimmer_sync.py + ui/pages/21_Skimmer.py; 4 tests.',
+     'Build 2026.06.30-g'),
     ('feature', '-', 'Cost Engine', 'working', 'True cost-of-doing-business ($/hour) engine',
      'Fully-loaded cost per billable hour: burdened wage (payroll tax + benefits) + every expense amortized across billable capacity. Workers-comp called out; break-even bill rate at a target margin; live what-if inputs that save back to labor settings. Composes the existing burdened_labor_rate + overhead_per_billable_hour; math locked by 4 tests. app/services/cost_of_business.py + ui/pages/18_Cost_of_Business.py.',
      'Build 2026.06.30-c'),
@@ -227,8 +227,8 @@ DEFAULT_DEV_ITEMS = [
     ('idea', 'P1', 'Tools', 'proposed', 'Integrate the pool-volume live tool as a first-class signal generator',
      'The pool_volume_tool_live_proto (references/legacy_seed) hits live GIS/parcel/imagery/geocoder sources and returns volume with evidence + assumptions + confidence. Adapt it into app/tools/pool_volume/, wire endpoints, and persist runs into raw/normalized/tool_run so volume estimates feed chemistry + estimating.',
      'Deep-research rollout report'),
-    ('idea', 'P1', 'Connectors', 'proposed', 'Build out the Skimmer ops/dispatch connector (currently a 1-line stub)',
-     'Skimmer is the field-operations spine: Customers, ServiceLocations, BodiesOfWater, WorkOrders, Routes (skimmer-api-key header). client.py is an empty placeholder today. Build ingestion for these so real service visits + routes + actuals flow in and close the expected-vs-actual loop. Supersedes the earlier "finish or remove Skimmer" note.',
+    ('idea', 'P1', 'Connectors', 'done', 'Build out the Skimmer ops/dispatch connector (currently a 1-line stub)',
+     'DONE 2026.06.30-g: client + normalizer + raw/normalized/apply pipeline landing work orders as ServiceVisits with labor + chemical actuals (fixture mode now; live when SKIMMER_API_KEY is set). Remaining: apply routes to a route entity, then route-level P&L + expected-vs-actual variance read these actuals.',
      'Deep-research rollout report'),
     ('idea', 'P2', 'Data', 'proposed', 'Postgres schema-per-layer (raw/norm/match/approve/core/fact/audit)',
      'When the Postgres move happens, use a schema-per-layer model in one modular monolith DB, with JSONB for raw payload retention and idempotency + optional outbox as reliability primitives. Enforces the raw->applied contract at the DB boundary.',
@@ -340,6 +340,9 @@ DEFAULT_LOG_ENTRIES = [
     # ---- Build 2026.06.30-f : asset lifecycle registry -------------------
     ('2026.06.30-f', 'shipped', 'Assets', 'Asset lifecycle registry (ordered -> received -> installed -> retired)',
      'New AssetRecord table + app/services/assets.py track a physical item (pump, heater, filter...) through its lifecycle with serial/model numbers, purchase provenance (vendor/invoice/cost/date), install location (property + vessel), and warranty. asset_summary rolls up installed-base value + warranties expiring soon. New Assets page (20): filterable registry, per-property asset list, add form, and receive/install/retire actions. Confirmed invoice ingestion already feeds the price ledger, so Purchasing self-populates. 3 tests lock the lifecycle (91 -> 94 passing).'),
+    # ---- Build 2026.06.30-g : Skimmer ops connector ---------------------
+    ('2026.06.30-g', 'shipped', 'Connectors', 'Skimmer ops connector (client + normalizer + pipeline ingestion)',
+     'Built the Skimmer connector on the raw -> normalized -> applied pipeline: SkimmerClient (skimmer-api-key header) with a fixture fallback so it runs before live creds; normalizers for customers/service-locations/bodies-of-water/work-orders/routes; and sync_skimmer() that lands service locations as Properties, bodies of water as PoolVessels, and work orders as ServiceVisits with ActualLaborFact + ActualChemicalFact + TechnicianAssignment (chemicals matched to seeded products). Idempotent. New Skimmer page (21): connection status, one-click sync, imported-visit table, run history. Drop in SKIMMER_API_KEY to go live. 4 tests (94 -> 98 passing). Unlocks route P&L + expected-vs-actual variance.'),
 ]
 
 _LOG_COLUMNS = ('build', 'kind', 'area', 'title', 'summary')
