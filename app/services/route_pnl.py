@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from datetime import date
+
 from sqlmodel import Session, select
 
 from app.models.ops_tables import ActualChemicalFact, ActualLaborFact, BillingDocument, ServiceVisit
@@ -19,6 +21,7 @@ from app.models.route_tables import RouteRecord, RouteVisit
 from app.models.tables import ChemicalProduct, Property
 from app.services.cost_of_business import compute_cost_of_business
 from app.services.expenses import latest_unit_cost
+from app.services.profitability import in_range
 
 
 @dataclass
@@ -60,8 +63,9 @@ def _price_map(session: Session) -> dict[int, float]:
     return {p.id: latest_unit_cost(session, p) for p in session.exec(select(ChemicalProduct)).all()}
 
 
-def _visit_cost_and_account(session: Session, cost_per_hour: float, prices: dict[int, float]):
-    """Return {visit_id: (cost, account_id)} across all service visits."""
+def _visit_cost_and_account(session: Session, cost_per_hour: float, prices: dict[int, float],
+                            start: date | None = None, end: date | None = None):
+    """Return {visit_id: (cost, account_id)} for visits performed in [start, end]."""
     property_account = {p.id: p.account_id for p in session.exec(select(Property)).all()}
     labor = {l.service_visit_id: l for l in session.exec(select(ActualLaborFact)).all()}
     chem: dict[int, list] = {}
@@ -70,6 +74,8 @@ def _visit_cost_and_account(session: Session, cost_per_hour: float, prices: dict
 
     out: dict[int, tuple[float, int | None]] = {}
     for v in session.exec(select(ServiceVisit)).all():
+        if not in_range(v.occurred_at.date() if v.occurred_at else None, start, end):
+            continue
         cost = 0.0
         lab = labor.get(v.id)
         if lab:
@@ -81,15 +87,17 @@ def _visit_cost_and_account(session: Session, cost_per_hour: float, prices: dict
     return out
 
 
-def route_pnl(session: Session) -> RoutePnLSummary:
+def route_pnl(session: Session, start: date | None = None, end: date | None = None) -> RoutePnLSummary:
+    """Route + technician P&L, optionally scoped to [start, end] (inclusive)."""
     cost_per_hour = compute_cost_of_business(session).true_cost_per_hour
     prices = _price_map(session)
-    visit_info = _visit_cost_and_account(session, cost_per_hour, prices)
+    visit_info = _visit_cost_and_account(session, cost_per_hour, prices, start, end)
 
-    # Revenue per account, and each account's visit count (for even allocation).
+    # Revenue per account (invoices issued in the period), and each account's
+    # in-period visit count (for even allocation).
     revenue: dict[int, float] = {}
     for doc in session.exec(select(BillingDocument).where(BillingDocument.source_slug == 'freshbooks')).all():
-        if doc.account_id:
+        if doc.account_id and in_range(doc.issued_on, start, end):
             revenue[doc.account_id] = revenue.get(doc.account_id, 0.0) + doc.total_amount
     acct_visits: dict[int, int] = {}
     for _vid, (_cost, acct) in visit_info.items():
@@ -112,6 +120,8 @@ def route_pnl(session: Session) -> RoutePnLSummary:
     routes: list[RoutePnL] = []
     tech_acc: dict[str, dict] = {}
     for route in session.exec(select(RouteRecord)).all():
+        if not in_range(route.route_date, start, end):
+            continue
         visit_ids = links.get(route.id, [])
         cost = sum(visit_info.get(vid, (0.0, None))[0] for vid in visit_ids)
         rev = sum(allocated_revenue(vid) for vid in visit_ids)

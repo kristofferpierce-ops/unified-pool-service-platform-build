@@ -19,6 +19,7 @@ Usage (top of a page):
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import date, timedelta
 from typing import Iterator
 
 import streamlit as st
@@ -73,6 +74,27 @@ def section(title: str, caption: str | None = None) -> None:
     st.subheader(title)
     if caption:
         st.caption(caption)
+
+
+def date_range_selector(key: str, label: str = 'Period') -> tuple[date | None, date | None]:
+    """A period picker returning (start, end) inclusive dates, or (None, None) for
+    all-time. Presets plus a custom range."""
+    today = date.today()
+    presets = {
+        'All time': (None, None),
+        'This year': (date(today.year, 1, 1), today),
+        'Last 12 months': (today - timedelta(days=365), today),
+        'This month': (date(today.year, today.month, 1), today),
+        'Custom…': 'custom',
+    }
+    choice = st.selectbox(label, options=list(presets.keys()), key=f'{key}_preset')
+    value = presets[choice]
+    if value == 'custom':
+        c1, c2 = st.columns(2)
+        start = c1.date_input('From', value=today - timedelta(days=90), key=f'{key}_from')
+        end = c2.date_input('To', value=today, key=f'{key}_to')
+        return start, end
+    return value
 
 
 @contextmanager

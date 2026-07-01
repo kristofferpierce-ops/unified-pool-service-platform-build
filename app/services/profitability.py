@@ -12,6 +12,7 @@ is the next step once visits are grouped by route.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 
 from sqlmodel import Session, select
 
@@ -19,6 +20,20 @@ from app.models.ops_tables import ActualChemicalFact, ActualLaborFact, BillingDo
 from app.models.tables import Account, ChemicalProduct, Property
 from app.services.cost_of_business import compute_cost_of_business
 from app.services.expenses import latest_unit_cost
+
+
+def in_range(d: date | None, start: date | None, end: date | None) -> bool:
+    """Whether date d falls in [start, end] (inclusive). No bounds -> always true.
+    A missing date is excluded whenever any bound is set (can't place it)."""
+    if start is None and end is None:
+        return True
+    if d is None:
+        return False
+    if start and d < start:
+        return False
+    if end and d > end:
+        return False
+    return True
 
 
 @dataclass
@@ -51,20 +66,22 @@ def _price_map(session: Session) -> dict[int, float]:
     return prices
 
 
-def account_profitability(session: Session) -> ProfitabilitySummary:
+def account_profitability(session: Session, start: date | None = None, end: date | None = None) -> ProfitabilitySummary:
+    """Customer P&L, optionally scoped to invoices issued and visits performed in
+    [start, end] (inclusive). No bounds = all-time."""
     cost_per_hour = compute_cost_of_business(session).true_cost_per_hour
     prices = _price_map(session)
 
     property_account = {p.id: p.account_id for p in session.exec(select(Property)).all()}
     account_name = {a.id: a.name for a in session.exec(select(Account)).all()}
 
-    # Revenue by account (FreshBooks invoices).
+    # Revenue by account (FreshBooks invoices issued in the period).
     revenue: dict[int, float] = {}
     for doc in session.exec(select(BillingDocument).where(BillingDocument.source_slug == 'freshbooks')).all():
-        if doc.account_id:
+        if doc.account_id and in_range(doc.issued_on, start, end):
             revenue[doc.account_id] = revenue.get(doc.account_id, 0.0) + doc.total_amount
 
-    # Cost by account from Skimmer-fed visit actuals.
+    # Cost by account from Skimmer-fed visit actuals (visits performed in the period).
     labor_by_visit = {l.service_visit_id: l for l in session.exec(select(ActualLaborFact)).all()}
     chem_by_visit: dict[int, list[ActualChemicalFact]] = {}
     for c in session.exec(select(ActualChemicalFact)).all():
@@ -76,6 +93,8 @@ def account_profitability(session: Session) -> ProfitabilitySummary:
     for visit in session.exec(select(ServiceVisit)).all():
         acct = property_account.get(visit.property_id)
         if not acct:
+            continue
+        if not in_range(visit.occurred_at.date() if visit.occurred_at else None, start, end):
             continue
         visit_count[acct] = visit_count.get(acct, 0) + 1
         lab = labor_by_visit.get(visit.id)

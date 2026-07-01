@@ -111,3 +111,18 @@ def test_live_freshbooks_pull_normalizes_and_lands():
     assert result.invoices_seen == 1
     assert round(result.total_revenue, 2) == 180.0
     assert result.documents_created == 1
+
+
+def test_profitability_period_filter():
+    from datetime import date
+    with _session() as s:
+        sync_skimmer(s, client=SkimmerClient(use_fixtures=True))
+        sync_freshbooks_invoices(s, invoices=FIXTURE_INVOICES)
+        alltime = account_profitability(s)
+        # Window on/after 2026-06-26 keeps inv-9001 (06-28) + inv-9002 (06-29),
+        # excludes Marina inv-9003 (06-25). All Skimmer visits (06-08..15) are
+        # before the window -> no cost recognized.
+        scoped = account_profitability(s, start=date(2026, 6, 26))
+    assert round(alltime.total_revenue, 2) == 540.0
+    assert round(scoped.total_revenue, 2) == 420.0
+    assert round(scoped.total_cost, 2) == 0.0

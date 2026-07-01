@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pandas as pd
 import streamlit as st
 
-from ui._shared import configure_page, db_session, page_header, section
+from ui._shared import configure_page, date_range_selector, db_session, page_header, section
 from app.services.route_pnl import route_pnl
 
 configure_page('Route P&L', icon='🚚')
@@ -18,8 +18,13 @@ page_header(
     icon='🚚',
 )
 
+section('Period')
+start, end = date_range_selector('route')
+if start or end:
+    st.caption(f"Scoped to routes/visits {start or '(open)'} → {end or '(open)'}.")
+
 with db_session() as session:
-    summary = route_pnl(session)
+    summary = route_pnl(session, start, end)
 
 m1, m2, m3, m4 = st.columns(4)
 m1.metric('Route revenue (allocated)', f'${summary.total_revenue:,.2f}')

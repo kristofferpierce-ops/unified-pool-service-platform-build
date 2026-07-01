@@ -20,7 +20,7 @@ configure_page('Development Tracker', icon='🧱')
 
 # Current build stamp (bump when a new batch of work ships). Modeled on Lumen's
 # DEV_VERSION: every changelog entry is tagged with the build it shipped in.
-DEV_BUILD = '2026.06.30-p'
+DEV_BUILD = '2026.06.30-r'
 
 # --------------------------------------------------------------------------
 # Vocabularies
@@ -383,6 +383,10 @@ DEFAULT_LOG_ENTRIES = [
     ('2026.06.30-n', 'shipped', 'Chemistry', 'LSI water-balance chemistry engine + dosing',
      'The core pool-specific differentiator. app/services/chemistry.py computes the Langelier Saturation Index (Taylor/APSP factor method expressed as continuous logs) from pH, temperature, calcium hardness, total alkalinity, TDS, and optional CYA correction; classifies corrosive/balanced/scaling; checks each parameter against ideal ranges; and recommends dosing (industry rates per 10,000 gal) to bring water into balance. New Chemistry page (26): load a property\'s latest reading or enter manually, see LSI + parameter status + dosing, and save the reading to the water-test log. 7 tests lock the math against balanced/corrosive/scaling worked cases (111 -> 118 passing).'),
     # ---- Build 2026.06.30-p : live FreshBooks revenue wiring ------------
+    ('2026.06.30-r', 'shipped', 'Profitability', 'Date-range filtering on customer + route P&L',
+     'account_profitability() and route_pnl() take an optional [start, end] period (shared in_range helper): revenue filtered by invoice issued_on, cost by visit occurred_at, routes by route_date. New shared date_range_selector (All time / This year / Last 12 months / This month / Custom) on the Profitability + Route P&L pages -- so the all-time cumulative revenue can be scoped to a real window (a year, a month). 1 test added; both pages render.'),
+    ('2026.06.30-q', 'shipped', 'Identity', 'Matching perf (O(1) repeat resolves) + operational reset + real-data load',
+     'resolve_customer() now short-circuits once an external record already has an account (any status, not just confirmed), so repeat records -- like many invoices for one client -- are O(1) instead of O(n) each. This made the full FreshBooks load feasible: 13,192 real invoices applied in ~71s. Added app/services/maintenance.py reset_operational_data() to clear connector/billing/matching/entity rows (keeping config, products, baselines, dev tracker) for a clean real-data start. Stopped tracking data/*.db in git (it holds customer PII). WENT LIVE: full FreshBooks history loaded -- $10.27M across 13,192 invoices, 347 customer accounts, 100 in the matching review queue. Skimmer (cost side) pending API key.'),
     ('2026.06.30-p', 'shipped', 'Connectors', 'Live FreshBooks invoice pull (wiring + token refresh)',
      'Wired the FreshBooks revenue pull to the real API. Added client.list_invoices() (paginated, /accounting/account/{id}/invoices/invoices with include[]=lines, matching Lumen); normalize_fb_invoice() maps FreshBooks JSON (amount dict, v3_status, customerid, embedded contact fields) to the source-neutral invoice shape; sync_freshbooks_invoices() now auto-selects live vs fixtures. Built OAuth token refresh-with-persistence (refresh_access_token + get_refreshed_freshbooks_client) since access tokens expire ~12h and refresh tokens rotate. Account-id resolved from /users/me (env value 404\'d). Profitability page shows live/fixtures status. Read-only validation confirmed refresh + auth work; surfaced that the connection\'s OAuth scope lacked invoice-read -- added user:invoices:read + user:payments:read to DEFAULT_SCOPES, so a re-authorization grants it. 121 tests pass (added a live-path test with a fake client).'),
     # ---- Build 2026.06.30-o : chemical-cost variance --------------------
