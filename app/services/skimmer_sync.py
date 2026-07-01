@@ -41,6 +41,7 @@ from app.models.ops_tables import (
     ServiceVisit,
     TechnicianAssignment,
 )
+from app.models.route_tables import RouteRecord, RouteVisit
 from app.models.tables import Account, ChemicalProduct, PoolVessel, Property
 from app.services.customer_matching import resolve_customer
 
@@ -57,6 +58,8 @@ class SkimmerSyncResult:
     service_visits_created: int = 0
     chemical_facts_created: int = 0
     unmatched_work_orders: int = 0
+    routes_created: int = 0
+    route_links_created: int = 0
     run_id: int | None = None
 
 
@@ -255,6 +258,35 @@ def sync_skimmer(session: Session, client: SkimmerClient | None = None, apply: b
                     chemical_name=chem['name'], quantity=chem['quantity'], unit=chem['unit'],
                 ))
                 result.chemical_facts_created += 1
+            session.commit()
+
+        # routes -> RouteRecord + RouteVisit links (visits resolved by work-order id)
+        visit_by_ext = {
+            v.external_id: v.id
+            for v in session.exec(select(ServiceVisit).where(ServiceVisit.source_slug == SOURCE)).all()
+        }
+        for rt in routes:
+            ext = rt['external_id']
+            route = session.exec(
+                select(RouteRecord).where(RouteRecord.source_slug == SOURCE).where(RouteRecord.external_id == ext)
+            ).first()
+            if not route:
+                route = RouteRecord(source_slug=SOURCE, external_id=ext, name=rt['name'],
+                                    route_date=rt['route_date'], technician=rt['technician'])
+                session.add(route)
+                session.commit()
+                session.refresh(route)
+                result.routes_created += 1
+            for wo_ext in rt['work_order_external_ids']:
+                vid = visit_by_ext.get(wo_ext)
+                if not vid:
+                    continue
+                exists = session.exec(
+                    select(RouteVisit).where(RouteVisit.route_id == route.id).where(RouteVisit.service_visit_id == vid)
+                ).first()
+                if not exists:
+                    session.add(RouteVisit(route_id=route.id, service_visit_id=vid))
+                    result.route_links_created += 1
             session.commit()
 
     run.status = 'completed'

@@ -20,7 +20,7 @@ configure_page('Development Tracker', icon='🧱')
 
 # Current build stamp (bump when a new batch of work ships). Modeled on Lumen's
 # DEV_VERSION: every changelog entry is tagged with the build it shipped in.
-DEV_BUILD = '2026.06.30-i'
+DEV_BUILD = '2026.06.30-j'
 
 # --------------------------------------------------------------------------
 # Vocabularies
@@ -128,6 +128,9 @@ DEFAULT_DEV_ITEMS = [
     ('feature', '-', 'Purchasing', 'working', 'Purchasing intelligence (best source + price anomalies)',
      'Supplier price book per product, cheapest-current-vendor recommendation with cross-vendor spread, and price-anomaly flags, computed over ProductPriceHistory (fed by invoice ingestion or manual entry). Manual price-observation entry on the page. app/services/purchasing.py + ui/pages/19_Purchasing.py; logic locked by 4 tests.',
      'Build 2026.06.30-e'),
+    ('feature', '-', 'Profitability', 'working', 'Route-level P&L',
+     'Route and technician profitability: exact per-visit cost + evenly-allocated customer revenue per route, loss flags, unrouted-visit count. RouteRecord + RouteVisit tables; Skimmer sync applies routes. app/services/route_pnl.py + ui/pages/24_Route_PnL.py; 3 tests.',
+     'Build 2026.06.30-j'),
     ('feature', '-', 'Profitability', 'working', 'Customer profitability (revenue - real cost)',
      'FreshBooks invoice revenue minus Skimmer-fed real cost (labor at true $/hour + chemical usage) joined on the matched account: profit + margin per customer, loss flags. FreshBooks invoice pull (fixture-first, live-ready) lands revenue in BillingDocument. app/services/{freshbooks_revenue,profitability}.py + ui/pages/23_Profitability.py; 3 end-to-end tests.',
      'Build 2026.06.30-i'),
@@ -355,6 +358,9 @@ DEFAULT_LOG_ENTRIES = [
     # ---- Build 2026.06.30-i : revenue pull + profitability --------------
     ('2026.06.30-i', 'shipped', 'Profitability', 'FreshBooks revenue pull + customer profitability engine',
      'Closes the money loop. app/services/freshbooks_revenue.py pulls customer invoices INTO the platform (fixture-first; live when the token is wired) -- the existing FreshBooks integration only pushed estimates out. Each invoice resolves its client through the matching engine and lands as BillingDocument revenue. app/services/profitability.py joins FreshBooks revenue with Skimmer-fed cost (labor at true $/hour + chemicals at latest cost) on the matched account -> profit + margin per customer, most-to-least profitable, loss flags. New Profitability page (23): pull button + revenue/cost/profit metrics + per-customer P&L. Demo across fixtures: $540 revenue - $152 cost = $388 profit. 3 end-to-end tests (103 -> 106 passing).'),
+    # ---- Build 2026.06.30-j : route-level P&L ---------------------------
+    ('2026.06.30-j', 'shipped', 'Profitability', 'Route-level P&L (by route + technician)',
+     'New RouteRecord + RouteVisit tables; the Skimmer sync now applies routes and links them to service visits by work-order id. app/services/route_pnl.py rolls up exact per-visit cost and evenly-allocated customer revenue into route- and technician-level P&L, with loss flags and an unrouted-visits count. New Route P&L page (24). The revenue allocation (each customer\'s revenue split evenly across their visits) is stated explicitly. 3 tests (106 -> 109 passing).'),
 ]
 
 _LOG_COLUMNS = ('build', 'kind', 'area', 'title', 'summary')

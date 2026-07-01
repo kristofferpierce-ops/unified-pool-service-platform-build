@@ -9,3 +9,4 @@ from app.models.heater_quote_tables import *  # noqa: F401,F403
 from app.models.dev_tracker import *  # noqa: F401,F403
 from app.models.asset_tables import *  # noqa: F401,F403
 from app.models.customer_tables import *  # noqa: F401,F403
+from app.models.route_tables import *  # noqa: F401,F403
