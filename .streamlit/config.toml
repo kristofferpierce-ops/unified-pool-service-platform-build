@@ -1,0 +1,15 @@
+# Global theme for the Unified Pool Service Operations Core.
+# One place sets the look for every page (light, clean, teal/water accent).
+[theme]
+base = "light"
+primaryColor = "#0E7C86"              # teal accent (buttons, links, focus)
+backgroundColor = "#FFFFFF"           # main canvas
+secondaryBackgroundColor = "#F1F5F7"  # sidebar + metric cards + widgets
+textColor = "#14232D"                 # high-contrast slate text
+font = "sans serif"
+
+[client]
+showErrorDetails = true
+
+[server]
+# Keep the default local behavior (auto-opens the browser). No headless here.

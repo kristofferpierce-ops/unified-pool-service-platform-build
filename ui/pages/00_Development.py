@@ -12,14 +12,15 @@ import pandas as pd
 import streamlit as st
 from sqlmodel import Session, select
 
+from ui._shared import configure_page, page_header
 from app.core.database import create_db_and_tables, engine
 from app.models.dev_tracker import DevItem, DevLogEntry
 
-st.set_page_config(page_title='Development Tracker', layout='wide')
+configure_page('Development Tracker', icon='🧱')
 
 # Current build stamp (bump when a new batch of work ships). Modeled on Lumen's
 # DEV_VERSION: every changelog entry is tagged with the build it shipped in.
-DEV_BUILD = '2026.06.30-c'
+DEV_BUILD = '2026.06.30-d'
 
 # --------------------------------------------------------------------------
 # Vocabularies
@@ -168,8 +169,8 @@ DEFAULT_DEV_ITEMS = [
     ('health', 'P2', 'UI', 'open', 'No error handling around UI DB writes',
      'The DB-direct pages (admin costs, estimators, even the 86KB quote workflow) have no try/except around commits; a bad cast surfaces as a raw Streamlit traceback.',
      'Code review: UI'),
-    ('health', 'P2', 'UI', 'open', 'No shared UI helper module',
-     'sys.path bootstrap + Session(engine) + bridge-probe code are copy-pasted into every page. A ui/_shared.py (page_header, db_session, bridge_get) would deduplicate broadly.',
+    ('health', 'P2', 'UI', 'in_progress', 'No shared UI helper module',
+     'sys.path bootstrap + Session(engine) + bridge-probe code are copy-pasted into every page. IN PROGRESS 2026.06.30-d: ui/_shared.py created (configure_page, page_header, section, db_session) and applied to Dashboard, Development, and Cost of Business. Remaining pages still need migration.',
      'Code review: UI'),
     ('health', 'P2', 'API', 'open', 'Untyped dict request bodies',
      'tools.py and connectors.py accept "payload: dict" with no Pydantic schema, bypassing validation. reports.py parses dates with no try/except, so bad input is an unhandled 500.',
@@ -183,8 +184,8 @@ DEFAULT_DEV_ITEMS = [
     ('health', 'P2', 'Safety', 'open', '"Safety" is inert marker strings, not controls',
      'planning_only=true and friends are literals that tests only check for presence; they gate nothing at runtime. Real safety is the separate confirm_live_write mechanism. Replace marker tests with tests against the real guard.',
      'Code review: methodology'),
-    ('health', 'P3', 'UI', 'open', 'Inconsistent set_page_config',
-     'Pages 1-10 omit it; 11-17 set it, leading to inconsistent titles and a double-call risk across navigation.',
+    ('health', 'P3', 'UI', 'in_progress', 'Inconsistent set_page_config',
+     'Pages 1-10 omit it; 11-17 set it, leading to inconsistent titles. IN PROGRESS 2026.06.30-d: a global .streamlit/config.toml theme now applies to every page regardless, and configure_page() standardizes it on the migrated pages. Remaining pages should adopt configure_page().',
      'Code review: UI'),
     ('health', 'P3', 'Cleanup', 'open', 'Two API entrypoints + partial model registration',
      'app.py wires ~30 routers; main.py re-exports. models/__init__ omits 3 modules that are registered defensively by side-effect imports in app.py -- forget the import and those tables silently never get created.',
@@ -275,8 +276,8 @@ DEFAULT_DEV_ITEMS = [
     ('idea', 'P1', 'Services', 'proposed', 'Wrap multi-write operations in single transactions',
      'Replace per-row commits in loops with one transaction plus rollback, so a partial batch failure rolls back cleanly.',
      'Code review: services'),
-    ('idea', 'P2', 'UI', 'proposed', 'Add a shared UI helper module + error wrapping',
-     'ui/_shared.py with inject_root_path(), db_session(), page_header(title, caption), and bridge_get(); wrap DB writes in try/except st.error. Deduplicates boilerplate and stops raw tracebacks.',
+    ('idea', 'P2', 'UI', 'in_progress', 'Add a shared UI helper module + error wrapping',
+     'ui/_shared.py DONE 2026.06.30-d with configure_page(), page_header(), section(), db_session(). Remaining: migrate all pages to it and add try/except st.error wrapping around DB writes to stop raw tracebacks.',
      'Code review: UI'),
 
     # ---- LUMEN INTEGRATION (OPTIONAL overlay -- not a dependency) --------
@@ -324,6 +325,9 @@ DEFAULT_LOG_ENTRIES = [
     # ---- Build 2026.06.30-c : first real pillar --------------------------
     ('2026.06.30-c', 'shipped', 'Cost Engine', 'True cost-of-doing-business ($/hour) engine',
      'First business pillar. app/services/cost_of_business.py composes burdened wage (payroll tax + benefits) with overhead-per-billable-hour into a fully-loaded cost per field hour -- $46.85/hr at seeded defaults. Workers-comp called out; break-even bill rate at a target margin. New Cost of Business page (18) with live what-if inputs + save-to-settings. 4 tests lock the math (83 -> 87 passing).'),
+    # ---- Build 2026.06.30-d : UI polish pass -----------------------------
+    ('2026.06.30-d', 'refactor', 'UI', 'Streamlit polish pass: global theme + shared components',
+     'Added .streamlit/config.toml (light, teal/water accent) that themes every page, a ui/_shared.py (configure_page, page_header, section, db_session) with a CSS refinement that styles metrics as clean stat cards, and made ui an importable package. Converted Dashboard, Development, and Cost of Business to the shared header/theme. Moves toward closing two logged UI health findings. 87/87 tests still pass.'),
 ]
 
 _LOG_COLUMNS = ('build', 'kind', 'area', 'title', 'summary')
@@ -476,8 +480,11 @@ with Session(engine) as _seed_session:
     seed_if_empty(_seed_session)
     seed_log_if_empty(_seed_session)
 
-st.title('Development Tracker')
-st.caption(f'Living record of what works, what needs fixing, and what to build next · Build {DEV_BUILD} · Edit any cell, add rows, then Save.')
+page_header(
+    'Development Tracker',
+    f'Living record of what works, what needs fixing, and what to build next · Build {DEV_BUILD} · Edit any cell, add rows, then Save.',
+    icon='🧱',
+)
 
 with Session(engine) as session:
     all_items = list(session.exec(select(DevItem)).all())

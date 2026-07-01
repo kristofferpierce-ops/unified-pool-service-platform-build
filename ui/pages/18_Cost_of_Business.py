@@ -10,16 +10,20 @@ import pandas as pd
 import streamlit as st
 from sqlmodel import Session
 
+from ui._shared import configure_page, page_header, section
 from app.core.database import engine
 from app.services.cost_of_business import compute_cost_of_business, load_labor_settings
 from app.services.estimator import LaborSettings
 from app.services.expenses import list_expenses
 from app.services.system_settings import set_setting
 
-st.set_page_config(page_title='Cost of Doing Business', layout='wide')
-st.title('True Cost of Doing Business')
-st.caption('What one billable field hour actually costs us, fully loaded: burdened wages + every expense, '
-           'amortized across real billable capacity. This is the floor every quote and route margin sits on.')
+configure_page('Cost of Doing Business', icon='💵')
+page_header(
+    'True Cost of Doing Business',
+    'What one billable field hour actually costs us, fully loaded: burdened wages + every expense, '
+    'amortized across real billable capacity. This is the floor every quote and route margin sits on.',
+    icon='💵',
+)
 
 # --------------------------------------------------------------------------
 # Inputs: start from stored labor settings, allow live what-if overrides.

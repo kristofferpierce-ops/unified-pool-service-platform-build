@@ -10,6 +10,7 @@ if str(ROOT) not in sys.path:
 import streamlit as st
 from sqlmodel import Session, select
 
+from ui._shared import configure_page, page_header
 from app.core.database import create_db_and_tables, engine
 from app.models.quote_tables import QuoteCase
 from app.models.tables import Account, PoolVessel, Property
@@ -18,7 +19,7 @@ from app.services.freshbooks_sync import get_freshbooks_mapping_summary
 from app.services.lacrm_sync import get_lacrm_mapping_summary
 from app.services.quote_workflow import get_dashboard_summary, list_quote_cases
 
-st.set_page_config(page_title='Unified Pool Service Operations Core', layout='wide')
+configure_page('Unified Pool Service Operations Core', icon='🌊')
 
 create_db_and_tables()
 with Session(engine) as session:
@@ -34,8 +35,11 @@ with Session(engine) as session:
     sync_pending = sum(1 for case in all_cases if case.sync_status in {'local_only', 'pending_sync', 'pending_mapping', 'pending_contact_link', 'dry_run_ready', 'sync_failed'})
     sync_drift = sum(1 for case in all_cases if case.sync_status in {'drift', 'external_deleted'})
 
-st.title('Unified Pool Service Operations Core')
-st.caption('Operations dashboard shell for quoting, billing readiness, deliveries, front desk review, and modular estimating tools.')
+page_header(
+    'Unified Pool Service Operations Core',
+    'Operations dashboard shell for quoting, billing readiness, deliveries, front desk review, and modular estimating tools.',
+    icon='🌊',
+)
 
 m1, m2, m3, m4, m5, m6, m7, m8, m9, m10 = st.columns(10)
 m1.metric('Accounts', accounts_count, help='Total account records currently stored in the platform database.')
