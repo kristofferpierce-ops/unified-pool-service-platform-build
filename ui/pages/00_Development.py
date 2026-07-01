@@ -20,7 +20,7 @@ configure_page('Development Tracker', icon='🧱')
 
 # Current build stamp (bump when a new batch of work ships). Modeled on Lumen's
 # DEV_VERSION: every changelog entry is tagged with the build it shipped in.
-DEV_BUILD = '2026.06.30-d'
+DEV_BUILD = '2026.06.30-e'
 
 # --------------------------------------------------------------------------
 # Vocabularies
@@ -125,6 +125,9 @@ DEFAULT_DEV_ITEMS = [
     ('feature', '-', 'Cost Engine', 'working', 'True cost-of-doing-business ($/hour) engine',
      'Fully-loaded cost per billable hour: burdened wage (payroll tax + benefits) + every expense amortized across billable capacity. Workers-comp called out; break-even bill rate at a target margin; live what-if inputs that save back to labor settings. Composes the existing burdened_labor_rate + overhead_per_billable_hour; math locked by 4 tests. app/services/cost_of_business.py + ui/pages/18_Cost_of_Business.py.',
      'Build 2026.06.30-c'),
+    ('feature', '-', 'Purchasing', 'working', 'Purchasing intelligence (best source + price anomalies)',
+     'Supplier price book per product, cheapest-current-vendor recommendation with cross-vendor spread, and price-anomaly flags, computed over ProductPriceHistory (fed by invoice ingestion or manual entry). Manual price-observation entry on the page. app/services/purchasing.py + ui/pages/19_Purchasing.py; logic locked by 4 tests.',
+     'Build 2026.06.30-e'),
 
     # ---- CODE HEALTH FINDINGS -------------------------------------------
     ('health', 'P0', 'Security', 'open', 'No authentication or authorization anywhere in the API',
@@ -328,6 +331,9 @@ DEFAULT_LOG_ENTRIES = [
     # ---- Build 2026.06.30-d : UI polish pass -----------------------------
     ('2026.06.30-d', 'refactor', 'UI', 'Streamlit polish pass: global theme + shared components',
      'Added .streamlit/config.toml (light, teal/water accent) that themes every page, a ui/_shared.py (configure_page, page_header, section, db_session) with a CSS refinement that styles metrics as clean stat cards, and made ui an importable package. Converted Dashboard, Development, and Cost of Business to the shared header/theme. Moves toward closing two logged UI health findings. 87/87 tests still pass.'),
+    # ---- Build 2026.06.30-e : purchasing intelligence --------------------
+    ('2026.06.30-e', 'shipped', 'Purchasing', 'Purchasing intelligence: best source + price anomalies',
+     'app/services/purchasing.py turns the ProductPriceHistory ledger into decisions: a supplier price book per product, best-source recommendation with the cross-vendor spread you are leaving on the table, and price-anomaly flags (a vendor\'s latest cost jumping vs its own previous). New Purchasing page (19) with best-source table, per-product price book, anomaly list, and manual price entry. No new tables -- pure analytics over the existing ledger. 4 tests lock the logic (87 -> 91 passing).'),
 ]
 
 _LOG_COLUMNS = ('build', 'kind', 'area', 'title', 'summary')
