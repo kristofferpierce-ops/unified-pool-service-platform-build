@@ -13,9 +13,13 @@ import streamlit as st
 from sqlmodel import Session, select
 
 from app.core.database import create_db_and_tables, engine
-from app.models.dev_tracker import DevItem
+from app.models.dev_tracker import DevItem, DevLogEntry
 
 st.set_page_config(page_title='Development Tracker', layout='wide')
+
+# Current build stamp (bump when a new batch of work ships). Modeled on Lumen's
+# DEV_VERSION: every changelog entry is tagged with the build it shipped in.
+DEV_BUILD = '2026.06.30-b'
 
 # --------------------------------------------------------------------------
 # Vocabularies
@@ -29,6 +33,18 @@ STATUS_BY_CATEGORY = {
 DEFAULT_STATUS = {'feature': 'working', 'health': 'open', 'idea': 'proposed'}
 PRIORITY_RANK = {'P0': 0, 'P1': 1, 'P2': 2, 'P3': 3, '-': 4}
 FEATURE_STATUS_RANK = {'working': 0, 'partial': 1, 'stub': 2}
+
+# Changelog entry kinds -> (emoji badge, label). Emoji gives at-a-glance scanning
+# in Streamlit without fighting CSS, echoing Lumen's colored status chips.
+KIND_META = {
+    'shipped':  ('\U0001F680', 'Shipped'),    # rocket
+    'fix':      ('\U0001F527', 'Fix'),         # wrench
+    'refactor': ('♻️', 'Refactor'),  # recycle
+    'cleanup':  ('\U0001F9F9', 'Cleanup'),     # broom
+    'infra':    ('\U0001F3D7️', 'Infra'),  # construction
+    'docs':     ('\U0001F4DD', 'Docs'),        # memo
+}
+KIND_OPTIONS = list(KIND_META.keys())
 
 CATEGORY_META = {
     'feature': (
@@ -283,6 +299,29 @@ DEFAULT_DEV_ITEMS = [
 
 _SEED_COLUMNS = ('category', 'priority', 'area', 'status', 'title', 'detail', 'source')
 
+# --------------------------------------------------------------------------
+# Seed changelog: the actual build history, newest build last.
+# Each tuple: (build, kind, area, title, summary)
+# --------------------------------------------------------------------------
+DEFAULT_LOG_ENTRIES = [
+    # ---- Build 2026.06.30-a : foundation cleanup -------------------------
+    ('2026.06.30-a', 'cleanup', 'Methodology', 'Retire the phase-ladder ceremony',
+     'Archived ~8,135 auto-generated ladder files (pages/tests/scripts/docs) to archive/ on branch cleanup/retire-phase-ladder. Git history, search, and bisect are usable again. Fully reversible; live tree audited to confirm no real code was swept.'),
+    ('2026.06.30-a', 'cleanup', 'API', 'Collapse the routing_bridge dead subsystem',
+     'Archived all 32 routing_bridge_* files (19 services + 12 routes + 1 model) and de-wired the 24 import/include lines from app.py. Backend imports clean at 127 routes.'),
+    ('2026.06.30-a', 'cleanup', 'UI', 'Prune ui/pages to real pages only',
+     'Reduced ui/pages from ~2,046 files to 26 live feature pages. All bridge/Phase packet stragglers archived; the misplaced estimator.py duplicate removed.'),
+    ('2026.06.30-a', 'infra', 'Infra', 'Guard backups and long paths',
+     'Gitignored backups/ (1,598 folders) and data/*.db + WAL/SHM files. Enabled git core.longpaths for the deep Phase 22 filenames on Windows.'),
+    # ---- Build 2026.06.30-b : development tracker -------------------------
+    ('2026.06.30-b', 'shipped', 'Development', 'Re-baseline the Development tracker to true scope',
+     'Corrected the framing to a self-contained Operations Core (its own ingestion + intelligence; Lumen an optional overlay). Marked cleanup done, reframed chemistry as a port of the Key West model, and added the real-architecture roadmap items.'),
+    ('2026.06.30-b', 'shipped', 'Development', 'Add a build-stamped Changelog (this log)',
+     'Added a dev_log table + Changelog tab modeled on Lumen\'s build-stamped registry, so every shipped batch is recorded in a clean, time-ordered log and the tracker stays visually organized as we build.'),
+]
+
+_LOG_COLUMNS = ('build', 'kind', 'area', 'title', 'summary')
+
 
 # --------------------------------------------------------------------------
 # Persistence helpers
@@ -334,6 +373,37 @@ def rebuild_defaults(session: Session) -> tuple[int, int]:
         session.add(DevItem(**_spec_to_kwargs(spec)))
     session.commit()
     return removed, len(DEFAULT_DEV_ITEMS)
+
+
+def seed_log_if_empty(session: Session) -> int:
+    """Populate the changelog with the real build history on first run only."""
+    if session.exec(select(DevLogEntry)).first() is not None:
+        return 0
+    for spec in DEFAULT_LOG_ENTRIES:
+        session.add(DevLogEntry(**dict(zip(_LOG_COLUMNS, spec))))
+    session.commit()
+    return len(DEFAULT_LOG_ENTRIES)
+
+
+def add_missing_log_entries(session: Session) -> int:
+    """Non-destructively add any seed log entry whose (build, title) is not present."""
+    existing = {(r.build, r.title) for r in session.exec(select(DevLogEntry)).all()}
+    added = 0
+    for spec in DEFAULT_LOG_ENTRIES:
+        kwargs = dict(zip(_LOG_COLUMNS, spec))
+        if (kwargs['build'], kwargs['title']) not in existing:
+            session.add(DevLogEntry(**kwargs))
+            added += 1
+    if added:
+        session.commit()
+    return added
+
+
+def load_log(session: Session) -> list[DevLogEntry]:
+    """All changelog entries, newest build first (then newest entry first)."""
+    rows = list(session.exec(select(DevLogEntry)).all())
+    rows.sort(key=lambda r: (r.build, r.id or 0), reverse=True)
+    return rows
 
 
 def load_items(session: Session, category: str) -> list[DevItem]:
@@ -398,33 +468,37 @@ def persist_edits(session: Session, category: str, original: list[DevItem], edit
 create_db_and_tables()
 with Session(engine) as _seed_session:
     seed_if_empty(_seed_session)
+    seed_log_if_empty(_seed_session)
 
 st.title('Development Tracker')
-st.caption('Living record of what works, what needs fixing, and what to build next. Edit any cell, add rows, then Save.')
+st.caption(f'Living record of what works, what needs fixing, and what to build next · Build {DEV_BUILD} · Edit any cell, add rows, then Save.')
 
 with Session(engine) as session:
     all_items = list(session.exec(select(DevItem)).all())
+    log_entries = load_log(session)
 
 features = [i for i in all_items if i.category == 'feature']
 health = [i for i in all_items if i.category == 'health']
 ideas = [i for i in all_items if i.category == 'idea']
+builds_shipped = len({e.build for e in log_entries if e.build})
 
 working = sum(1 for i in features if i.status == 'working')
 health_open = sum(1 for i in health if i.status in ('open', 'in_progress'))
 p0_open = sum(1 for i in health if i.status in ('open', 'in_progress') and i.priority == 'P0')
 ideas_open = sum(1 for i in ideas if i.status in ('proposed', 'planned', 'in_progress'))
 
-c1, c2, c3, c4, c5 = st.columns(5)
+c1, c2, c3, c4, c5, c6 = st.columns(6)
 c1.metric('Working features', working, help='Features with status "working" (partial/stub excluded).')
 c2.metric('Health findings open', health_open, help='Code-health items still open or in progress.')
 c3.metric('P0 critical open', p0_open, help='Critical findings (security, ceremony, dead subsystems) still open.')
 c4.metric('Ideas in play', ideas_open, help='Roadmap ideas proposed, planned, or in progress.')
-c5.metric('Total tracked', len(all_items), help='All tracked items across every category.')
+c5.metric('Builds shipped', builds_shipped, help='Distinct builds recorded in the changelog.')
+c6.metric('Total tracked', len(all_items), help='All tracked items across every category.')
 
 st.divider()
 
-tab_overview, tab_features, tab_health, tab_ideas, tab_add = st.tabs(
-    ['Overview & assessment', 'Working features', 'Code health', 'Ideas & roadmap', 'Add item']
+tab_overview, tab_changelog, tab_features, tab_health, tab_ideas, tab_add = st.tabs(
+    ['Overview & assessment', 'Changelog', 'Working features', 'Code health', 'Ideas & roadmap', 'Add item']
 )
 
 
@@ -478,6 +552,60 @@ def render_category_tab(category: str) -> None:
         st.caption('Tip: edit cells inline, add rows at the bottom, or clear a Title to remove a row. New rows inherit this tab category.')
 
 
+def render_changelog_tab() -> None:
+    st.subheader('Changelog')
+    st.caption('Time-ordered record of what actually shipped, grouped by build. Newest first. '
+               'Modeled on the Lumen development registry so progress stays visually organized.')
+
+    with st.expander('Add a changelog entry'):
+        with st.form('add_log_form', clear_on_submit=True):
+            la, lb, lc = st.columns(3)
+            with la:
+                l_build = st.text_input('Build', value=DEV_BUILD)
+            with lb:
+                l_kind = st.selectbox('Kind', options=KIND_OPTIONS,
+                                      format_func=lambda k: f'{KIND_META[k][0]} {KIND_META[k][1]}')
+            with lc:
+                l_area = st.text_input('Area', value='General')
+            l_title = st.text_input('Title')
+            l_summary = st.text_area('Summary', height=80)
+            if st.form_submit_button('Add entry', type='primary'):
+                if not l_title.strip():
+                    st.error('Title is required.')
+                else:
+                    with Session(engine) as sess:
+                        sess.add(DevLogEntry(
+                            build=(l_build.strip() or DEV_BUILD), kind=l_kind,
+                            area=(l_area.strip() or 'General'),
+                            title=l_title.strip(), summary=l_summary.strip(),
+                        ))
+                        sess.commit()
+                    st.success('Logged.')
+                    st.rerun()
+
+    with Session(engine) as sess:
+        entries = load_log(sess)
+
+    if not entries:
+        st.info('No changelog entries yet. Add one above, or use the maintenance button to seed the build history.')
+        return
+
+    current_build = None
+    for e in entries:
+        if e.build != current_build:
+            current_build = e.build
+            count = sum(1 for x in entries if x.build == e.build)
+            st.markdown(f'### Build {e.build or "(unstamped)"}  ·  {count} change{"s" if count != 1 else ""}')
+            st.divider()
+        emoji, label = KIND_META.get(e.kind, ('•', e.kind))
+        st.markdown(f'{emoji}  **{e.title}**  ·  `{label}`  ·  _{e.area}_')
+        if e.summary:
+            st.caption(e.summary)
+
+
+with tab_changelog:
+    render_changelog_tab()
+
 with tab_features:
     render_category_tab('feature')
 
@@ -529,6 +657,11 @@ with tab_add:
             with Session(engine) as sess:
                 added = add_missing_defaults(sess)
             st.success(f'Added {added} missing default item(s).' if added else 'All default items already present.')
+            st.rerun()
+        if st.button('Add missing changelog entries'):
+            with Session(engine) as sess:
+                added = add_missing_log_entries(sess)
+            st.success(f'Added {added} changelog entr(ies).' if added else 'Changelog already up to date.')
             st.rerun()
     with mcol2:
         st.caption('Re-baseline replaces the seeded review with the current corrected defaults. Your manually added rows are kept.')

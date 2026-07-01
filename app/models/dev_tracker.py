@@ -42,3 +42,32 @@ class DevItem(SQLModel, table=True):
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class DevLogEntry(SQLModel, table=True):
+    """One chronological changelog line for the Development page.
+
+    Modeled on Lumen's build-stamped registry: every entry is tagged with a
+    ``build`` (e.g. '2026.06.30-a') so shipped work groups into a clean,
+    time-ordered log. Append-only in spirit; entries record what was actually
+    built/changed each session so the history stays visually organized.
+
+    Separate table from DevItem: DevItem tracks current STATE (features/health/
+    ideas), DevLogEntry tracks the LOG (what happened, when, in which build).
+    """
+
+    __tablename__ = 'dev_log'
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+
+    build: str = Field(default='', index=True)  # build stamp, e.g. '2026.06.30-a'
+
+    # 'shipped' | 'fix' | 'refactor' | 'cleanup' | 'infra' | 'docs'
+    kind: str = Field(default='shipped', index=True)
+
+    area: str = Field(default='General', index=True)
+    title: str = Field(default='')
+    summary: str = Field(default='')
+
+    logged_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
