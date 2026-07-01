@@ -6,7 +6,7 @@ import app.models  # noqa: F401
 from app.services.bootstrap import seed_defaults
 from app.connectors.skimmer.client import SkimmerClient
 from app.services.skimmer_sync import sync_skimmer
-from app.services.variance import labor_variance
+from app.services.variance import chemical_variance, labor_variance
 
 
 def _session() -> Session:
@@ -46,3 +46,32 @@ def test_no_actuals_means_no_variance():
     assert summary.visits_analyzed == 0
     assert summary.total_variance_minutes == 0
     assert summary.properties == []
+
+
+def test_chemical_variance_expected_vs_actual():
+    with _session() as s:
+        sync_skimmer(s, client=SkimmerClient(use_fixtures=True))
+        summary = chemical_variance(s)
+
+    # 3 fixture visits carry chemical logs.
+    assert summary.visits_analyzed == 3
+    assert summary.total_actual > 0
+    assert summary.total_expected > 0
+    # Bookkeeping identity holds.
+    assert round(summary.total_variance_cost, 4) == round(summary.total_actual - summary.total_expected, 4)
+    # Every visit has an expected + actual chemical cost.
+    assert all(v.expected_cost >= 0 and v.actual_cost > 0 for v in summary.visit_rows)
+
+
+def test_chemical_variance_captures_per_property_usage():
+    with _session() as s:
+        sync_skimmer(s, client=SkimmerClient(use_fixtures=True))
+        summary = chemical_variance(s)
+    sunset = next(p for p in summary.properties if 'Sunset' in p.name)
+    alvarez = next(p for p in summary.properties if 'Alvarez' in p.name)
+    # Sunset (6 gal chlorine + 8 lb bicarb on a big commercial pool) uses far more
+    # chemical per visit than the small residential pool.
+    assert sunset.avg_actual > alvarez.avg_actual
+    # Signed variance identity holds per property.
+    for p in summary.properties:
+        assert round(p.total_variance_cost, 4) == round((p.avg_actual - p.avg_expected) * p.visits, 4)

@@ -20,7 +20,7 @@ configure_page('Development Tracker', icon='🧱')
 
 # Current build stamp (bump when a new batch of work ships). Modeled on Lumen's
 # DEV_VERSION: every changelog entry is tagged with the build it shipped in.
-DEV_BUILD = '2026.06.30-n'
+DEV_BUILD = '2026.06.30-o'
 
 # --------------------------------------------------------------------------
 # Vocabularies
@@ -131,9 +131,9 @@ DEFAULT_DEV_ITEMS = [
     ('feature', '-', 'Chemistry', 'working', 'LSI water-balance engine',
      'Langelier Saturation Index from a water test (pH, temp, CH, TA, TDS, optional CYA correction) with corrosive/balanced/scaling classification, per-parameter range checks, and dosing recommendations (per-10k-gal industry rates). Reads/writes WaterTestLog. app/services/chemistry.py + ui/pages/26_Chemistry.py; math locked by 7 tests.',
      'Build 2026.06.30-n'),
-    ('feature', '-', 'Intelligence', 'working', 'Expected-vs-actual variance (labor time)',
-     'Compares priced visit minutes (vessel) vs Skimmer-logged actual minutes, valued at true $/hour: per-visit + per-property variance with chronic-overrun flags and unpriced-labor cost. First dimension of the expected-vs-actual brain (chemical/margin next). app/services/variance.py + ui/pages/25_Variance.py; 2 tests.',
-     'Build 2026.06.30-k'),
+    ('feature', '-', 'Intelligence', 'working', 'Expected-vs-actual variance (labor + chemical)',
+     'Two-dimension expected-vs-actual brain. Labor: priced visit minutes vs Skimmer-logged minutes at true $/hour. Chemical: deterministic estimator expected chemical cost per visit vs logged usage at latest unit cost. Per-visit + per-property variance, over-use/overrun flags. Two-tab Variance page. app/services/variance.py + ui/pages/25_Variance.py; 4 tests.',
+     'Build 2026.06.30-k/o'),
     ('feature', '-', 'Profitability', 'working', 'Route-level P&L',
      'Route and technician profitability: exact per-visit cost + evenly-allocated customer revenue per route, loss flags, unrouted-visit count. RouteRecord + RouteVisit tables; Skimmer sync applies routes. app/services/route_pnl.py + ui/pages/24_Route_PnL.py; 3 tests.',
      'Build 2026.06.30-j'),
@@ -249,8 +249,8 @@ DEFAULT_DEV_ITEMS = [
      'When the Postgres move happens, use a schema-per-layer model in one modular monolith DB, with JSONB for raw payload retention and idempotency + optional outbox as reliability primitives. Enforces the raw->applied contract at the DB boundary.',
      'Deep-research rollout report'),
     # Product features (market-benchmarked)
-    ('idea', 'P1', 'Chemistry', 'in_progress', 'Port the Key West deterministic chemistry model into versioned code',
-     'LSI water-balance calc + dosing DONE 2026.06.30-n (app/services/chemistry.py). Remaining half: the Key West CONSUMPTION model (monthly climate + rain dilution -> expected chemical usage) for chemical variance. That logic already largely lives in the estimator coefficients (bootstrap.py BaselineModelVersion); wrapping it as a clean versioned module + wiring expected-vs-actual chemical variance is the follow-up.',
+    ('idea', 'P1', 'Chemistry', 'done', 'Port the Key West deterministic chemistry model into versioned code',
+     'DONE. LSI water-balance calc + dosing shipped 2026.06.30-n (app/services/chemistry.py). The consumption side (expected chemical usage) is wired into chemical-cost variance 2026.06.30-o via the estimator baseline coefficients. A formal standalone Key West module (with explicit rain-dilution + the workbook as a regression oracle) remains an optional refinement, but expected-vs-actual chemical is live end to end.',
      'Deep-research rollout report'),
     ('idea', 'P1', 'Operations', 'proposed', 'Route optimization & scheduling',
      'GPS-aware route building to maximize pools serviced per day. Notably, market leader Skimmer lacks this, so it is a real differentiation opportunity. Pairs with job-duration modeling.',
@@ -379,6 +379,9 @@ DEFAULT_LOG_ENTRIES = [
     # ---- Build 2026.06.30-n : LSI chemistry engine ----------------------
     ('2026.06.30-n', 'shipped', 'Chemistry', 'LSI water-balance chemistry engine + dosing',
      'The core pool-specific differentiator. app/services/chemistry.py computes the Langelier Saturation Index (Taylor/APSP factor method expressed as continuous logs) from pH, temperature, calcium hardness, total alkalinity, TDS, and optional CYA correction; classifies corrosive/balanced/scaling; checks each parameter against ideal ranges; and recommends dosing (industry rates per 10,000 gal) to bring water into balance. New Chemistry page (26): load a property\'s latest reading or enter manually, see LSI + parameter status + dosing, and save the reading to the water-test log. 7 tests lock the math against balanced/corrosive/scaling worked cases (111 -> 118 passing).'),
+    # ---- Build 2026.06.30-o : chemical-cost variance --------------------
+    ('2026.06.30-o', 'shipped', 'Intelligence', 'Chemical-cost variance (expected-vs-actual, dimension 2)',
+     'Second variance dimension completes the expected-vs-actual brain. app/services/variance.py chemical_variance() drives the deterministic estimator per vessel to get EXPECTED chemical cost per visit and compares it to ACTUAL Skimmer-logged chemical usage valued at latest unit cost: per-visit + per-property signed variance, over-use (waste) flags, and expected/actual/variance rollups. The Variance page (25) is now two tabs -- Labor time + Chemical cost. On the fixtures the model expects $103.56 but only $45.19 was logged -- a model-vs-reality gap the page surfaces. 2 tests (118 -> 120 passing).'),
 ]
 
 _LOG_COLUMNS = ('build', 'kind', 'area', 'title', 'summary')
