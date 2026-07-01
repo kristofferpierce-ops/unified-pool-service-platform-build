@@ -19,7 +19,7 @@ st.set_page_config(page_title='Development Tracker', layout='wide')
 
 # Current build stamp (bump when a new batch of work ships). Modeled on Lumen's
 # DEV_VERSION: every changelog entry is tagged with the build it shipped in.
-DEV_BUILD = '2026.06.30-b'
+DEV_BUILD = '2026.06.30-c'
 
 # --------------------------------------------------------------------------
 # Vocabularies
@@ -121,6 +121,9 @@ DEFAULT_DEV_ITEMS = [
     ('feature', '-', 'Connectors', 'stub', 'Skimmer connector',
      'Referenced in default source systems, but client.py is an empty placeholder. It implies a capability that does not exist.',
      'Code review: services'),
+    ('feature', '-', 'Cost Engine', 'working', 'True cost-of-doing-business ($/hour) engine',
+     'Fully-loaded cost per billable hour: burdened wage (payroll tax + benefits) + every expense amortized across billable capacity. Workers-comp called out; break-even bill rate at a target margin; live what-if inputs that save back to labor settings. Composes the existing burdened_labor_rate + overhead_per_billable_hour; math locked by 4 tests. app/services/cost_of_business.py + ui/pages/18_Cost_of_Business.py.',
+     'Build 2026.06.30-c'),
 
     # ---- CODE HEALTH FINDINGS -------------------------------------------
     ('health', 'P0', 'Security', 'open', 'No authentication or authorization anywhere in the API',
@@ -318,6 +321,9 @@ DEFAULT_LOG_ENTRIES = [
      'Corrected the framing to a self-contained Operations Core (its own ingestion + intelligence; Lumen an optional overlay). Marked cleanup done, reframed chemistry as a port of the Key West model, and added the real-architecture roadmap items.'),
     ('2026.06.30-b', 'shipped', 'Development', 'Add a build-stamped Changelog (this log)',
      'Added a dev_log table + Changelog tab modeled on Lumen\'s build-stamped registry, so every shipped batch is recorded in a clean, time-ordered log and the tracker stays visually organized as we build.'),
+    # ---- Build 2026.06.30-c : first real pillar --------------------------
+    ('2026.06.30-c', 'shipped', 'Cost Engine', 'True cost-of-doing-business ($/hour) engine',
+     'First business pillar. app/services/cost_of_business.py composes burdened wage (payroll tax + benefits) with overhead-per-billable-hour into a fully-loaded cost per field hour -- $46.85/hr at seeded defaults. Workers-comp called out; break-even bill rate at a target margin. New Cost of Business page (18) with live what-if inputs + save-to-settings. 4 tests lock the math (83 -> 87 passing).'),
 ]
 
 _LOG_COLUMNS = ('build', 'kind', 'area', 'title', 'summary')

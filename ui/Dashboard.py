@@ -62,6 +62,7 @@ with launch_c:
     st.page_link('pages/6_Commercial_Deliveries.py', label='Commercial Deliveries', icon='🚚', help='Open monthly delivery reporting and property level billing review.')
     st.page_link('pages/9_Tools.py', label='Tools', icon='🛠️', help='Open operational tools such as property verification and future equipment quote modules.')
 with launch_d:
+    st.page_link('pages/18_Cost_of_Business.py', label='Cost of Business', icon='💵', help='Open the true cost-of-doing-business engine: fully-loaded cost per billable hour and break-even bill rates.')
     st.page_link('pages/8_Compare_&_Train.py', label='Compare + Train', icon='📊', help='Open compare and train workflows for pricing calibration and review.')
     st.page_link('pages/10_Estimate_Library.py', label='Estimate Library', icon='📚', help='Open saved estimate runs and exported reporting views.')
     st.page_link('pages/14_Bridge_Review.py', label='Bridge Review', icon='☎️', help='Open the platform-side bridge SMS review and guarded LACRM dry-run apply page.')
