@@ -29,6 +29,8 @@ DEFAULT_SCOPES = [
     "user:clients:write",
     "user:estimates:read",
     "user:estimates:write",
+    "user:invoices:read",
+    "user:payments:read",
 ]
 
 

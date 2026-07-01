@@ -20,7 +20,7 @@ configure_page('Development Tracker', icon='🧱')
 
 # Current build stamp (bump when a new batch of work ships). Modeled on Lumen's
 # DEV_VERSION: every changelog entry is tagged with the build it shipped in.
-DEV_BUILD = '2026.06.30-o'
+DEV_BUILD = '2026.06.30-p'
 
 # --------------------------------------------------------------------------
 # Vocabularies
@@ -379,6 +379,9 @@ DEFAULT_LOG_ENTRIES = [
     # ---- Build 2026.06.30-n : LSI chemistry engine ----------------------
     ('2026.06.30-n', 'shipped', 'Chemistry', 'LSI water-balance chemistry engine + dosing',
      'The core pool-specific differentiator. app/services/chemistry.py computes the Langelier Saturation Index (Taylor/APSP factor method expressed as continuous logs) from pH, temperature, calcium hardness, total alkalinity, TDS, and optional CYA correction; classifies corrosive/balanced/scaling; checks each parameter against ideal ranges; and recommends dosing (industry rates per 10,000 gal) to bring water into balance. New Chemistry page (26): load a property\'s latest reading or enter manually, see LSI + parameter status + dosing, and save the reading to the water-test log. 7 tests lock the math against balanced/corrosive/scaling worked cases (111 -> 118 passing).'),
+    # ---- Build 2026.06.30-p : live FreshBooks revenue wiring ------------
+    ('2026.06.30-p', 'shipped', 'Connectors', 'Live FreshBooks invoice pull (wiring + token refresh)',
+     'Wired the FreshBooks revenue pull to the real API. Added client.list_invoices() (paginated, /accounting/account/{id}/invoices/invoices with include[]=lines, matching Lumen); normalize_fb_invoice() maps FreshBooks JSON (amount dict, v3_status, customerid, embedded contact fields) to the source-neutral invoice shape; sync_freshbooks_invoices() now auto-selects live vs fixtures. Built OAuth token refresh-with-persistence (refresh_access_token + get_refreshed_freshbooks_client) since access tokens expire ~12h and refresh tokens rotate. Account-id resolved from /users/me (env value 404\'d). Profitability page shows live/fixtures status. Read-only validation confirmed refresh + auth work; surfaced that the connection\'s OAuth scope lacked invoice-read -- added user:invoices:read + user:payments:read to DEFAULT_SCOPES, so a re-authorization grants it. 121 tests pass (added a live-path test with a fake client).'),
     # ---- Build 2026.06.30-o : chemical-cost variance --------------------
     ('2026.06.30-o', 'shipped', 'Intelligence', 'Chemical-cost variance (expected-vs-actual, dimension 2)',
      'Second variance dimension completes the expected-vs-actual brain. app/services/variance.py chemical_variance() drives the deterministic estimator per vessel to get EXPECTED chemical cost per visit and compares it to ACTUAL Skimmer-logged chemical usage valued at latest unit cost: per-visit + per-property signed variance, over-use (waste) flags, and expected/actual/variance rollups. The Variance page (25) is now two tabs -- Labor time + Chemical cost. On the fixtures the model expects $103.56 but only $45.19 was logged -- a model-vs-reality gap the page surfaces. 2 tests (118 -> 120 passing).'),

@@ -6,7 +6,7 @@ import app.models  # noqa: F401
 from app.models.route_tables import RouteRecord, RouteVisit
 from app.services.bootstrap import seed_defaults
 from app.connectors.skimmer.client import SkimmerClient
-from app.services.freshbooks_revenue import sync_freshbooks_invoices
+from app.services.freshbooks_revenue import FIXTURE_INVOICES, sync_freshbooks_invoices
 from app.services.route_pnl import route_pnl
 from app.services.skimmer_sync import sync_skimmer
 
@@ -31,7 +31,7 @@ def test_skimmer_applies_routes_and_links():
 def test_route_pnl_rolls_up_cost_and_allocated_revenue():
     with _session() as s:
         sync_skimmer(s, client=SkimmerClient(use_fixtures=True))
-        sync_freshbooks_invoices(s)
+        sync_freshbooks_invoices(s, invoices=FIXTURE_INVOICES)
         summary = route_pnl(s)
 
     assert summary.cost_per_hour > 0

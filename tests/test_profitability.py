@@ -6,7 +6,7 @@ import app.models  # noqa: F401
 from app.models.ops_tables import BillingDocument
 from app.services.bootstrap import seed_defaults
 from app.connectors.skimmer.client import SkimmerClient
-from app.services.freshbooks_revenue import sync_freshbooks_invoices
+from app.services.freshbooks_revenue import FIXTURE_INVOICES, sync_freshbooks_invoices
 from app.services.profitability import account_profitability
 from app.services.skimmer_sync import sync_skimmer
 
@@ -23,7 +23,7 @@ def test_freshbooks_pull_lands_invoices_and_matches():
     with _session() as s:
         # Skimmer first: creates the customer accounts (Mateo, Sunset Resort).
         sync_skimmer(s, client=SkimmerClient(use_fixtures=True))
-        result = sync_freshbooks_invoices(s)
+        result = sync_freshbooks_invoices(s, invoices=FIXTURE_INVOICES)
 
     assert result.invoices_seen == 3
     assert result.documents_created == 3
@@ -37,7 +37,7 @@ def test_freshbooks_pull_lands_invoices_and_matches():
 def test_profitability_joins_revenue_and_cost():
     with _session() as s:
         sync_skimmer(s, client=SkimmerClient(use_fixtures=True))
-        sync_freshbooks_invoices(s)
+        sync_freshbooks_invoices(s, invoices=FIXTURE_INVOICES)
         summary = account_profitability(s)
 
     # Revenue recognized across accounts.
@@ -65,8 +65,49 @@ def test_profitability_joins_revenue_and_cost():
 def test_pull_is_idempotent():
     with _session() as s:
         sync_skimmer(s, client=SkimmerClient(use_fixtures=True))
-        sync_freshbooks_invoices(s)
-        second = sync_freshbooks_invoices(s)
+        sync_freshbooks_invoices(s, invoices=FIXTURE_INVOICES)
+        second = sync_freshbooks_invoices(s, invoices=FIXTURE_INVOICES)
         assert second.documents_created == 0
         docs = list(s.exec(select(BillingDocument)).all())
         assert len(docs) == 3
+
+
+class _FakeFBClient:
+    """Stands in for FreshBooksClient, returning FreshBooks-shaped invoice JSON."""
+    account_id = '6BApk'
+
+    def resolve_first_account_id(self):
+        return self.account_id
+
+    def list_invoices(self, *, page=1, per_page=100, include=None, account_id=None):
+        if page > 1:
+            return [], 1
+        invoices = [{
+            'invoiceid': 778001, 'invoice_number': '0042', 'customerid': 55,
+            'organization': '', 'fname': 'Mateo', 'lname': 'Alvarez', 'email': 'mateo@example.com',
+            'amount': {'amount': '180.00', 'code': 'USD'}, 'create_date': '2026-06-28',
+            'v3_status': 'paid',
+            'lines': [{'name': 'Service', 'description': 'Monthly pool service',
+                       'qty': '2', 'unit_cost': {'amount': '90.00'}, 'amount': {'amount': '180.00'}}],
+        }]
+        return invoices, 1
+
+
+def test_live_freshbooks_pull_normalizes_and_lands():
+    from app.services.freshbooks_revenue import fetch_live_invoices, normalize_fb_invoice
+
+    raw = {'invoiceid': 1, 'customerid': 9, 'fname': 'A', 'lname': 'B', 'email': 'A@B.com',
+           'amount': {'amount': '240.00', 'code': 'USD'}, 'create_date': '2026-06-01', 'v3_status': 'sent',
+           'lines': [{'description': 'x', 'qty': '1', 'unit_cost': {'amount': '240.00'}, 'amount': {'amount': '240.00'}}]}
+    norm = normalize_fb_invoice(raw)
+    assert norm['id'] == 'fb_inv_1'
+    assert norm['amount'] == 240.0
+    assert norm['client_email'] == 'A@B.com'
+    assert norm['lines'][0]['unit_price'] == 240.0
+
+    with _session() as s:
+        result = sync_freshbooks_invoices(s, client=_FakeFBClient())
+    assert result.mode == 'live'
+    assert result.invoices_seen == 1
+    assert round(result.total_revenue, 2) == 180.0
+    assert result.documents_created == 1

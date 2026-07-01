@@ -8,6 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from ui._shared import configure_page, db_session, page_header, section
+from app.connectors.freshbooks.client import FreshBooksAPIError, get_freshbooks_connection_status
 from app.services.freshbooks_revenue import sync_freshbooks_invoices
 from app.services.profitability import account_profitability
 
@@ -22,21 +23,31 @@ page_header(
 # --------------------------------------------------------------------------
 # Pull revenue
 # --------------------------------------------------------------------------
+_fb_status = get_freshbooks_connection_status()
+_is_live = _fb_status.get('configured')
+
 pull_col, note_col = st.columns([1, 3])
 with pull_col:
     if st.button('Pull FreshBooks invoices', type='primary'):
-        with db_session() as session:
-            res = sync_freshbooks_invoices(session)
-        st.session_state['fb_pull'] = res.__dict__
-        st.rerun()
+        try:
+            with db_session() as session:
+                res = sync_freshbooks_invoices(session)
+            st.session_state['fb_pull'] = res.__dict__
+            st.rerun()
+        except FreshBooksAPIError as exc:
+            st.error(f'FreshBooks pull failed: {exc}')
 with note_col:
-    st.caption('Pulls customer invoices (fixture data until a live FreshBooks token is wired), resolves each '
-               'client to an account via customer matching, and lands them as revenue. Re-pulling is idempotent.')
+    if _is_live:
+        st.caption('🟢 **Live** — FreshBooks token + account configured. Pulls real customer invoices, resolves '
+                   'each client to an account via customer matching, and lands them as revenue. Idempotent.')
+    else:
+        st.caption('⚪ **Fixtures** — no FreshBooks token configured yet. Pulls bundled sample invoices so the '
+                   'pipeline runs. Set FRESHBOOKS_ACCESS_TOKEN + FRESHBOOKS_ACCOUNT_ID to go live.')
 
 pull = st.session_state.get('fb_pull')
 if pull:
-    st.success(f"Pulled {pull['invoices_seen']} invoices · ${pull['total_revenue']:,.2f} revenue · "
-               f"{pull['matched']} matched to accounts · {pull['documents_created']} new.")
+    st.success(f"Pulled {pull['invoices_seen']} invoices ({pull.get('mode', 'fixtures')}) · "
+               f"${pull['total_revenue']:,.2f} revenue · {pull['matched']} matched · {pull['documents_created']} new.")
 
 # --------------------------------------------------------------------------
 # P&L
