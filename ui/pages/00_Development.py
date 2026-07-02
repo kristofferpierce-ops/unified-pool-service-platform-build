@@ -20,7 +20,7 @@ configure_page('Development Tracker', icon='🧱')
 
 # Current build stamp (bump when a new batch of work ships). Modeled on Lumen's
 # DEV_VERSION: every changelog entry is tagged with the build it shipped in.
-DEV_BUILD = '2026.06.30-t'
+DEV_BUILD = '2026.06.30-u'
 
 # --------------------------------------------------------------------------
 # Vocabularies
@@ -294,6 +294,9 @@ DEFAULT_DEV_ITEMS = [
      'OPEN DECISIONS: source of truth (recommend platform = hub, CRM = main human entry), trigger (realtime webhook vs "Sync customer" button vs batch), push-only vs bidirectional, auto vs review. '
      'SEQUENCING: build AFTER the read side is solid (revenue attribution fixed + Skimmer live), one target at a time, dry-run first (FreshBooks create_client as the first proof).',
      'Owner vision'),
+    ('idea', 'P2', 'Identity', 'proposed', 'Review the ~100 possible-duplicate customer matches (optional, never blocking)',
+     'Auto-attribute (2026-06-30) gave every ambiguous FreshBooks client its own account so no revenue is orphaned, and flagged ~100 as possible duplicates of an existing account. TO VERIFY/CLEAN UP: open the Customer Matching page (the 🔗 page) -> "Possible duplicates -- review anytime" section -> for each, click Keep separate or Merge. This does not affect your totals -- it only cleans up potential duplicate customer records. No rush; the flags persist until you decide.',
+     'Go-live'),
     ('idea', 'P3', 'Connectors', 'done', 'Give the pool platform its own FreshBooks OAuth app',
      'DONE 2026-06-30: the platform uses its OWN dedicated FreshBooks app "KPS internal Uni-CoreSync" (client_id 6183c3...) with user:invoices:read enabled -- no coupling to Lumen. The brief Lumen-app borrow was reverted (override removed from Launch API.bat). Scopes for this app use the user:-prefixed format: user:profile/clients/estimates + user:invoices:read.',
      'Go-live'),
@@ -390,6 +393,8 @@ DEFAULT_LOG_ENTRIES = [
     ('2026.06.30-n', 'shipped', 'Chemistry', 'LSI water-balance chemistry engine + dosing',
      'The core pool-specific differentiator. app/services/chemistry.py computes the Langelier Saturation Index (Taylor/APSP factor method expressed as continuous logs) from pH, temperature, calcium hardness, total alkalinity, TDS, and optional CYA correction; classifies corrosive/balanced/scaling; checks each parameter against ideal ranges; and recommends dosing (industry rates per 10,000 gal) to bring water into balance. New Chemistry page (26): load a property\'s latest reading or enter manually, see LSI + parameter status + dosing, and save the reading to the water-test log. 7 tests lock the math against balanced/corrosive/scaling worked cases (111 -> 118 passing).'),
     # ---- Build 2026.06.30-p : live FreshBooks revenue wiring ------------
+    ('2026.06.30-u', 'shipped', 'Identity', 'Auto-attribute matching (zero orphaned revenue) + possible-duplicate review',
+     'Changed the matching policy so nothing is ever orphaned: an ambiguous customer now gets its OWN account (so revenue attributes) but is flagged as a possible duplicate for optional review -- never a wrong merge, worst case a splittable duplicate. Added merge_account() (moves billing + properties + id maps to the target, removes the source). New "Possible duplicates -- review anytime" section on the Customer Matching page (22) with Keep separate / Merge actions -- THIS is where the flagged matches are reviewed/verified. Re-pulled real data: unattributed revenue $2.29M -> $0.00; all $10.27M attributed across 447 customers; 100 flagged for optional review; 0 blocking. YTD attributed $839k -> $959k. 3 tests.'),
     ('2026.06.30-t', 'shipped', 'Profitability', 'Revenue composition by invoice status (sortable, period-filtered)',
      'New revenue_composition() breaks FreshBooks invoices down by status (paid / auto-paid / sent / viewed / overdue...) with count + amount + % of revenue, scoped to the selected period. Surfaces collected vs outstanding A/R and recurring (auto-paid) vs one-off. Added as a section on the Profitability page: metric cards + a status table sortable by any column header. On real data: all-time $10.17M collected / $1.76M recurring / $105k outstanding; YTD $855k collected. 1 test; 124 pass.'),
     ('2026.06.30-s', 'shipped', 'Profitability', '7-day / 30-day / YTD ranges + variance period filter',

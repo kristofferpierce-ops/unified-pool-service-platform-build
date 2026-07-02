@@ -145,8 +145,11 @@ def resolve_customer(
         .where(CustomerMatch.source_slug == source)
         .where(CustomerMatch.external_id == external_id)
     ).first()
-    if prior and prior.status == 'confirmed' and prior.account_id:
-        return MatchResult(prior.account_id, 'confirmed', prior.match_pass, prior.confidence, False,
+    # Once an external record is resolved to an account, keep it -- don't re-run
+    # the passes. This makes repeat records (e.g. many invoices for one client)
+    # O(1) instead of O(n) each, and honors "matches persist" for confirmed ones.
+    if prior and prior.account_id:
+        return MatchResult(prior.account_id, prior.status, prior.match_pass, prior.confidence, False,
                            json.loads(prior.candidates_json or '[]'))
 
     ne, np = norm_email(email), norm_phone(phone)
@@ -193,7 +196,18 @@ def resolve_customer(
         'score': round(score, 3), 'reason': 'name/company similarity',
     } for score, p in scored if score >= SUGGEST_NAME][:3]
 
-    # Pass 3: manual queue vs new account.
+    # Pass 3: an ambiguous name/company match. Rather than orphan the record (and
+    # its revenue), attribute it to its OWN new account but flag it as a possible
+    # duplicate of the candidate(s) for optional later review/merge. This never
+    # wrongly merges two distinct customers -- the worst case is a splittable
+    # duplicate. Only when auto_create is off do we leave it in the manual queue.
+    if candidates and auto_create_when_new:
+        account = _create_account(session, source=source, name=name, email=email, phone=phone, company=company)
+        _upsert_match(session, source, external_id, name=name, email=email, phone=phone,
+                      company=company, account_id=account.id, status='flagged', match_pass=3,
+                      confidence=candidates[0]['score'], candidates=candidates)
+        return MatchResult(account.id, 'flagged', 3, candidates[0]['score'], True, candidates)
+
     if candidates:
         _upsert_match(session, source, external_id, name=name, email=email, phone=phone,
                       company=company, account_id=None, status='suggested', match_pass=3,
@@ -250,6 +264,38 @@ def list_matches(session: Session, status: str | None = None, source: str | None
     return rows
 
 
+def merge_account(session: Session, from_account_id: int, into_account_id: int) -> None:
+    """Merge one account into another: move its billing + properties + external
+    id maps + match records to the target, then remove the now-empty account.
+    Used to resolve a flagged possible-duplicate that really is the same customer."""
+    from app.models.connector_tables import ExternalIdentityMap
+    from app.models.ops_tables import BillingDocument
+    from app.models.tables import Account, Property
+
+    if from_account_id == into_account_id:
+        return
+    for doc in session.exec(select(BillingDocument).where(BillingDocument.account_id == from_account_id)).all():
+        doc.account_id = into_account_id
+    for prop in session.exec(select(Property).where(Property.account_id == from_account_id)).all():
+        prop.account_id = into_account_id
+    for eim in session.exec(
+        select(ExternalIdentityMap)
+        .where(ExternalIdentityMap.internal_type == 'account')
+        .where(ExternalIdentityMap.internal_id == str(from_account_id))
+    ).all():
+        eim.internal_id = str(into_account_id)
+    for m in session.exec(select(CustomerMatch).where(CustomerMatch.account_id == from_account_id)).all():
+        m.account_id = into_account_id
+        m.status = 'confirmed'
+        m.updated_at = datetime.utcnow()
+    for prof in session.exec(select(CustomerProfile).where(CustomerProfile.account_id == from_account_id)).all():
+        session.delete(prof)
+    acct = session.get(Account, from_account_id)
+    if acct:
+        session.delete(acct)
+    session.commit()
+
+
 def matching_summary(session: Session) -> dict:
     rows = list(session.exec(select(CustomerMatch)).all())
     by_status: dict[str, int] = {}
@@ -258,6 +304,9 @@ def matching_summary(session: Session) -> dict:
     return {
         'total': len(rows),
         'by_status': by_status,
+        # True blockers (orphaned, no account). Should be ~0 under auto-attribute.
         'needs_review': by_status.get('suggested', 0) + by_status.get('unmatched', 0),
+        # Auto-attributed but a possible duplicate -- optional review, never blocking.
+        'possible_duplicates': by_status.get('flagged', 0),
         'accounts': len(list(session.exec(select(CustomerProfile)).all())),
     }

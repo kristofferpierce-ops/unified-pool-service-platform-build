@@ -15,6 +15,7 @@ from app.services.customer_matching import (
     confirm_match,
     list_matches,
     matching_summary,
+    merge_account,
     unlink_match,
 )
 
@@ -22,12 +23,13 @@ configure_page('Customer Matching', icon='🔗')
 page_header(
     'Customer Matching',
     'Reconciles external customer records (Skimmer, FreshBooks) into one account so cost and revenue '
-    'join. Pass 1 exact email auto-links, pass 2 uses phone/name, pass 3 is this manual queue. '
-    'Override any match anytime — matches persist, so this stays low-maintenance.',
+    'join. Everything auto-attributes: exact email/phone or strong name auto-links; anything ambiguous '
+    'still gets its own account (so no revenue is orphaned) but is flagged below as a possible duplicate '
+    'you can merge whenever you like. Nothing here ever blocks your numbers.',
     icon='🔗',
 )
 
-STATUS_BADGE = {'auto': '🟢', 'confirmed': '✅', 'suggested': '🟡', 'unmatched': '🔴'}
+STATUS_BADGE = {'auto': '🟢', 'confirmed': '✅', 'flagged': '🟠', 'suggested': '🟡', 'unmatched': '🔴'}
 
 
 def _account_options(session) -> dict:
@@ -39,11 +41,53 @@ with db_session() as session:
     summary = matching_summary(session)
     account_opts = _account_options(session)
 
-m1, m2, m3 = st.columns(3)
+m1, m2, m3, m4 = st.columns(4)
 m1.metric('Customer accounts', summary['accounts'])
 m2.metric('Matches recorded', summary['total'])
-m3.metric('Needs review', summary['needs_review'],
-          help='Suggested (ambiguous) + unmatched records awaiting a manual decision.')
+m3.metric('Possible duplicates', summary.get('possible_duplicates', 0),
+          help='Auto-attributed but similar to another account — optional to review/merge. Never blocks your numbers.')
+m4.metric('Blocking (orphaned)', summary['needs_review'],
+          help='Records with no account at all. Should be ~0 under auto-attribute.')
+
+# --------------------------------------------------------------------------
+# Possible duplicates (auto-attributed, optional review) — YOUR REVIEW SURFACE
+# --------------------------------------------------------------------------
+with db_session() as session:
+    flagged = [m for m in list_matches(session) if m.status == 'flagged']
+
+if flagged:
+    section('Possible duplicates — review anytime',
+            'These customers were auto-given their own account (so their revenue counts), but they look '
+            'similar to an existing account. Keep them separate, or merge if they are the same customer. '
+            'No rush — nothing here affects your totals.')
+    st.caption(f'{len(flagged)} flagged. Work through these whenever you feel like it; they persist until you decide.')
+    for m in flagged[:100]:
+        cands = json.loads(m.candidates_json or '[]')
+        with st.container(border=True):
+            st.markdown(f"🟠 **{m.external_name or '(no name)'}** · {m.source_slug} · "
+                        f"{m.external_email or 'no email'}")
+            if cands:
+                st.caption('Looks like: ' + ', '.join(f"{c['name']} ({int(c['score']*100)}%)" for c in cands))
+            cols = st.columns([2, 1, 1])
+            with cols[0]:
+                merge_target = st.selectbox(
+                    'Merge into', options=[c['account_id'] for c in cands],
+                    format_func=lambda i: account_opts.get(i, f'Account {i}'), key=f'mt_{m.id}'
+                ) if cands else None
+            with cols[1]:
+                st.write('')
+                if cands and st.button('Merge', key=f'merge_{m.id}', type='primary'):
+                    with db_session() as session:
+                        merge_account(session, m.account_id, merge_target)
+                    st.success('Merged.')
+                    st.rerun()
+            with cols[2]:
+                st.write('')
+                if st.button('Keep separate', key=f'keep_{m.id}'):
+                    with db_session() as session:
+                        confirm_match(session, m.id, m.account_id)
+                    st.success('Kept separate.')
+                    st.rerun()
 
 if summary['total'] == 0:
     st.info('No matches yet. Run a Skimmer sync (and later a FreshBooks pull) — external customers resolve '

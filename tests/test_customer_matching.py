@@ -50,16 +50,19 @@ def test_pass2_exact_phone_autolinks():
         assert fb.account_id == seed.account_id
 
 
-def test_pass3_ambiguous_name_goes_to_manual_queue():
+def test_pass3_ambiguous_gets_own_account_and_flag():
     with _session() as s:
         seed = _seed_skimmer_customer(s, 'Oceanview Pools LLC', company='Oceanview Pools LLC', ext='sk-3')
-        # Similar name, no email/phone -> suggested (manual), not auto-linked.
+        # Similar name, no email/phone -> auto-attributed to its OWN account, but
+        # flagged as a possible duplicate (never orphaned).
         fb = resolve_customer(s, source='freshbooks', external_id='fb-3',
                               name='Oceanview Pool', company='Oceanview Pool')
-        assert fb.status == 'suggested'
+        assert fb.status == 'flagged'
         assert fb.match_pass == 3
-        assert fb.account_id is None
+        assert fb.account_id is not None and fb.account_id != seed.account_id
+        assert fb.created_account
         assert fb.candidates and fb.candidates[0]['account_id'] == seed.account_id
+        assert len(list(s.exec(select(Account)).all())) == 2
 
 
 def test_new_customer_with_no_match_creates_account():
@@ -77,7 +80,7 @@ def test_manual_confirm_and_override_persists():
         seed = _seed_skimmer_customer(s, 'Oceanview Pools LLC', company='Oceanview Pools LLC', ext='sk-5')
         fb = resolve_customer(s, source='freshbooks', external_id='fb-5',
                               name='Oceanview Pool', company='Oceanview Pool')
-        assert fb.status == 'suggested'
+        assert fb.status == 'flagged'
 
         match = [m for m in list_matches(s, source='freshbooks') if m.external_id == 'fb-5'][0]
         confirm_match(s, match.id, seed.account_id)
@@ -92,3 +95,26 @@ def test_manual_confirm_and_override_persists():
         unlink_match(s, match.id)
         remaining = [m for m in list_matches(s, source='freshbooks') if m.external_id == 'fb-5'][0]
         assert remaining.account_id is None and remaining.status == 'unmatched'
+
+
+def test_merge_account_moves_billing_and_removes_source():
+    from app.models.ops_tables import BillingDocument
+    from app.services.customer_matching import matching_summary, merge_account
+    with _session() as s:
+        seed = _seed_skimmer_customer(s, 'Oceanview Pools LLC', company='Oceanview Pools LLC', ext='sk-9')
+        fb = resolve_customer(s, source='freshbooks', external_id='fb-9',
+                              name='Oceanview Pool', company='Oceanview Pool')
+        assert fb.status == 'flagged'
+        assert matching_summary(s)['possible_duplicates'] == 1
+
+        # A billing doc on the flagged (own) account.
+        s.add(BillingDocument(source_slug='freshbooks', external_id='inv-x',
+                              account_id=fb.account_id, total_amount=100.0))
+        s.commit()
+
+        merge_account(s, fb.account_id, seed.account_id)
+
+        docs = list(s.exec(select(BillingDocument)).all())
+        assert docs and all(d.account_id == seed.account_id for d in docs)  # revenue moved
+        assert s.get(Account, fb.account_id) is None                        # source account removed
+        assert matching_summary(s)['possible_duplicates'] == 0              # flag resolved
