@@ -7,6 +7,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from datetime import date
+
+import pandas as pd
 import streamlit as st
 from sqlmodel import Session, select
 
@@ -14,9 +17,11 @@ from ui._shared import configure_page, page_header
 from app.core.database import create_db_and_tables, engine
 from app.models.quote_tables import QuoteCase
 from app.models.tables import Account, PoolVessel, Property
+from app.services.accounts_receivable import accounts_receivable
 from app.services.bootstrap import seed_defaults
 from app.services.freshbooks_sync import get_freshbooks_mapping_summary
 from app.services.lacrm_sync import get_lacrm_mapping_summary
+from app.services.profitability import account_profitability, revenue_by_month, revenue_composition
 from app.services.quote_workflow import get_dashboard_summary, list_quote_cases
 
 configure_page('Unified Pool Service Operations Core', icon='🌊')
@@ -40,6 +45,64 @@ page_header(
     'Operations dashboard shell for quoting, billing readiness, deliveries, front desk review, and modular estimating tools.',
     icon='🌊',
 )
+
+# --- Business at a glance: real FreshBooks revenue + A/R, front and center ---
+_ytd_start = date(date.today().year, 1, 1)
+with Session(engine) as _rev_session:
+    _ytd = account_profitability(_rev_session, start=_ytd_start)
+    _all_time = account_profitability(_rev_session)
+    _comp_ytd = revenue_composition(_rev_session, start=_ytd_start)
+    _ar = accounts_receivable(_rev_session)
+    _monthly = revenue_by_month(_rev_session)
+
+if _all_time.total_revenue > 0:
+    st.subheader('Business at a glance')
+    st.caption('Live FreshBooks billings and receivables. Cost and margin fill in once Skimmer actuals sync.')
+
+    r1, r2, r3, r4, r5 = st.columns(5)
+    r1.metric('Revenue YTD', f'${_ytd.total_revenue:,.0f}', help=f'FreshBooks invoices issued since {_ytd_start.isoformat()}.')
+    r2.metric('Revenue all-time', f'${_all_time.total_revenue:,.0f}', help='Every FreshBooks invoice on record, all years.')
+    r3.metric(
+        'Recurring YTD',
+        f'${_comp_ytd.recurring:,.0f}',
+        help='Auto-paid (recurring autopay) share of this year\'s billings. The steady base under everything else.',
+    )
+    r4.metric(
+        'Outstanding A/R',
+        f'${_ar.total_outstanding:,.0f}',
+        delta=f'${_ar.aged:,.0f} aged 31+' if _ar.aged else 'all current',
+        delta_color='inverse',
+        help=f'{_ar.invoice_count} uncollected invoices. Most autopay clears same-month, so A/R stays low.',
+    )
+    r5.metric('Customers', f'{len(_all_time.accounts):,}', help='Accounts with at least one invoice or logged visit.')
+
+    trend_col, top_col = st.columns([3, 2])
+    with trend_col:
+        st.caption('Monthly billings (last 24 months)')
+        if _monthly:
+            _df = (
+                pd.DataFrame(_monthly[-24:], columns=['Month', 'Revenue'])
+                .set_index('Month')
+            )
+            st.bar_chart(_df, height=240, color='#2563eb')
+        else:
+            st.info('No dated invoices yet.')
+    with top_col:
+        st.caption('Top customers by revenue (all-time)')
+        _top = [a for a in _all_time.accounts if a.revenue > 0][:8]
+        if _top:
+            st.dataframe(
+                pd.DataFrame(
+                    [{'Customer': a.name, 'Revenue': round(a.revenue, 2)} for a in _top]
+                ),
+                hide_index=True,
+                width='stretch',
+                column_config={'Revenue': st.column_config.NumberColumn(format='$%.0f')},
+            )
+        else:
+            st.info('No customer revenue yet.')
+
+    st.divider()
 
 m1, m2, m3, m4, m5, m6, m7, m8, m9, m10 = st.columns(10)
 m1.metric('Accounts', accounts_count, help='Total account records currently stored in the platform database.')

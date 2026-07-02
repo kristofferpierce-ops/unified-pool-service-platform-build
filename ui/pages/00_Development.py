@@ -20,7 +20,7 @@ configure_page('Development Tracker', icon='🧱')
 
 # Current build stamp (bump when a new batch of work ships). Modeled on Lumen's
 # DEV_VERSION: every changelog entry is tagged with the build it shipped in.
-DEV_BUILD = '2026.06.30-v'
+DEV_BUILD = '2026.06.30-w'
 
 # --------------------------------------------------------------------------
 # Vocabularies
@@ -396,6 +396,8 @@ DEFAULT_LOG_ENTRIES = [
     ('2026.06.30-n', 'shipped', 'Chemistry', 'LSI water-balance chemistry engine + dosing',
      'The core pool-specific differentiator. app/services/chemistry.py computes the Langelier Saturation Index (Taylor/APSP factor method expressed as continuous logs) from pH, temperature, calcium hardness, total alkalinity, TDS, and optional CYA correction; classifies corrosive/balanced/scaling; checks each parameter against ideal ranges; and recommends dosing (industry rates per 10,000 gal) to bring water into balance. New Chemistry page (26): load a property\'s latest reading or enter manually, see LSI + parameter status + dosing, and save the reading to the water-test log. 7 tests lock the math against balanced/corrosive/scaling worked cases (111 -> 118 passing).'),
     # ---- Build 2026.06.30-p : live FreshBooks revenue wiring ------------
+    ('2026.06.30-w', 'shipped', 'Dashboard', 'Real revenue + A/R + trend chart on the Dashboard',
+     'The Dashboard now opens on the real business, not the empty operational shell. New "Business at a glance" band: Revenue YTD ($959k), Revenue all-time ($10.27M), Recurring YTD ($245k, the autopay base), Outstanding A/R ($105k with aged-31+ delta), and customer count -- all live from FreshBooks. Below it a monthly-billings bar chart (last 24 months) beside a top-8 customers-by-revenue table. New revenue_by_month() service groups invoices by issued year-month (period-aware); 2 tests (126 -> 128 passing). The band only shows once real revenue exists, so a fresh/empty install still opens clean.'),
     ('2026.06.30-v', 'shipped', 'Receivables', 'A/R aging + collections list',
      'New accounts_receivable() ages every outstanding FreshBooks invoice (excludes paid/auto-paid/deposit-paid) by days since issued into 0-30 (current) / 31-60 / 61-90 / 90+, rolled up by customer. New Receivables page (27): total/current/aged metrics, an aging table, and a sortable "who owes you" collections list with an aged-only filter. Freshly-issued recurring bills stay in the current bucket so they do not read as overdue. Real data: $105,187 outstanding but only $1,276 genuinely aged (a single 90+ day invoice) -- 99% current; autopay bills auto-collect out of A/R. 1 test.'),
     ('2026.06.30-u', 'shipped', 'Identity', 'Auto-attribute matching (zero orphaned revenue) + possible-duplicate review',

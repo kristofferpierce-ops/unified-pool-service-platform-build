@@ -183,3 +183,14 @@ def revenue_composition(session: Session, start: date | None = None, end: date |
         one_off_collected=collected - recurring,
         rows=rows,
     )
+
+
+def revenue_by_month(session: Session, start: date | None = None, end: date | None = None) -> list[tuple[str, float]]:
+    """Monthly billed revenue as [(YYYY-MM, amount), ...], chronological."""
+    agg: dict[str, float] = {}
+    for doc in session.exec(select(BillingDocument).where(BillingDocument.source_slug == 'freshbooks')).all():
+        if not doc.issued_on or not in_range(doc.issued_on, start, end):
+            continue
+        key = doc.issued_on.strftime('%Y-%m')
+        agg[key] = agg.get(key, 0.0) + doc.total_amount
+    return sorted(agg.items())
