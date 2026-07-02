@@ -104,17 +104,20 @@ if _all_time.total_revenue > 0:
 
     st.divider()
 
-m1, m2, m3, m4, m5, m6, m7, m8, m9, m10 = st.columns(10)
-m1.metric('Accounts', accounts_count, help='Total account records currently stored in the platform database.')
-m2.metric('Properties', properties_count, help='Total property records currently stored in the platform database.')
-m3.metric('Vessels', vessels_count, help='Total pool vessels currently stored in the platform database.')
-m4.metric('Quote Cases', active_quotes, help='Total quote workflow cases currently tracked in the workflow ledger.')
-m5.metric('Stale Cases', quote_dashboard['totals']['stale_cases'], help='Cases that have been in their current stage longer than the configured threshold.')
-m6.metric('Follow Ups Due', quote_dashboard['totals']['follow_ups_due'], help='Cases with a follow up due date on or before today.')
-m7.metric('LACRM Pending', sync_pending, help='Cases that still need mapping, contact linking, or a prepared sync before CRM alignment is complete.')
-m8.metric('LACRM Drift', sync_drift, help='Cases where the CRM record was deleted or the webhook delivered a status that is not mapped locally yet.')
-m9.metric('FB Drafts', freshbooks_summary['draft_prepared_count'], help='Quote cases with a FreshBooks draft prepared locally or live, waiting for review and send.')
-m10.metric('FB Sent or Viewed', freshbooks_summary['sent_estimate_count'] + freshbooks_summary['viewed_estimate_count'], help='Quote cases whose linked FreshBooks estimate is already sent or viewed.')
+# Two rows of 5 so every label reads in full (10-across truncated them to "ACCO...").
+op_a, op_b, op_c, op_d, op_e = st.columns(5)
+op_a.metric('Accounts', accounts_count, help='Total account records currently stored in the platform database.')
+op_b.metric('Properties', properties_count, help='Total property records currently stored in the platform database.')
+op_c.metric('Vessels', vessels_count, help='Total pool vessels currently stored in the platform database.')
+op_d.metric('Quote Cases', active_quotes, help='Total quote workflow cases currently tracked in the workflow ledger.')
+op_e.metric('Stale Cases', quote_dashboard['totals']['stale_cases'], help='Cases that have been in their current stage longer than the configured threshold.')
+
+op_f, op_g, op_h, op_i, op_j = st.columns(5)
+op_f.metric('Follow Ups Due', quote_dashboard['totals']['follow_ups_due'], help='Cases with a follow up due date on or before today.')
+op_g.metric('LACRM Pending', sync_pending, help='Cases that still need mapping, contact linking, or a prepared sync before CRM alignment is complete.')
+op_h.metric('LACRM Drift', sync_drift, help='Cases where the CRM record was deleted or the webhook delivered a status that is not mapped locally yet.')
+op_i.metric('FB Drafts', freshbooks_summary['draft_prepared_count'], help='Quote cases with a FreshBooks draft prepared locally or live, waiting for review and send.')
+op_j.metric('FB Sent or Viewed', freshbooks_summary['sent_estimate_count'] + freshbooks_summary['viewed_estimate_count'], help='Quote cases whose linked FreshBooks estimate is already sent or viewed.')
 
 st.subheader('Operations launchpad')
 launch_a, launch_b, launch_c, launch_d = st.columns(4)
