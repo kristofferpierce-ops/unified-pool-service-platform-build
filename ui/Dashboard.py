@@ -72,6 +72,7 @@ with launch_d:
     st.page_link('pages/21_Skimmer.py', label='Skimmer Sync', icon='🌊', help='Pull Skimmer field-ops data (work orders, chemical logs, routes) into service visits with labor and chemical actuals.')
     st.page_link('pages/22_Customer_Matching.py', label='Customer Matching', icon='🔗', help='Reconcile Skimmer and FreshBooks customers into one account so cost and revenue join. Review and override matches here.')
     st.page_link('pages/23_Profitability.py', label='Profitability', icon='📈', help='Where the profit is: FreshBooks revenue minus real cost (labor + chemicals) per customer.')
+    st.page_link('pages/27_Receivables.py', label='Receivables (A/R)', icon='💰', help='What customers owe, aged 0-30/31-60/61-90/90+, with a sortable collections list.')
     st.page_link('pages/24_Route_PnL.py', label='Route P&L', icon='🚚', help='Route-level profitability: which routes make money, which cost more, by route and technician.')
     st.page_link('pages/25_Variance.py', label='Variance', icon='🎯', help='Expected vs actual: priced visit time vs logged time, valued at true $/hour. Flags chronic overruns.')
     st.page_link('pages/26_Chemistry.py', label='Chemistry (LSI)', icon='🧪', help='Langelier water-balance index + dosing recommendations. Corrosive/balanced/scaling with fixes.')

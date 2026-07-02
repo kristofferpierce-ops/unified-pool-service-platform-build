@@ -20,7 +20,7 @@ configure_page('Development Tracker', icon='🧱')
 
 # Current build stamp (bump when a new batch of work ships). Modeled on Lumen's
 # DEV_VERSION: every changelog entry is tagged with the build it shipped in.
-DEV_BUILD = '2026.06.30-u'
+DEV_BUILD = '2026.06.30-v'
 
 # --------------------------------------------------------------------------
 # Vocabularies
@@ -134,6 +134,9 @@ DEFAULT_DEV_ITEMS = [
     ('feature', '-', 'Intelligence', 'working', 'Expected-vs-actual variance (labor + chemical)',
      'Two-dimension expected-vs-actual brain. Labor: priced visit minutes vs Skimmer-logged minutes at true $/hour. Chemical: deterministic estimator expected chemical cost per visit vs logged usage at latest unit cost. Per-visit + per-property variance, over-use/overrun flags. Two-tab Variance page. app/services/variance.py + ui/pages/25_Variance.py; 4 tests.',
      'Build 2026.06.30-k/o'),
+    ('feature', '-', 'Receivables', 'working', 'A/R aging + collections list',
+     'Ages outstanding FreshBooks invoices (0-30/31-60/61-90/90+) by customer, separating current (incl. fresh recurring bills) from genuinely aged. Sortable collections list + aged-only filter. app/services/accounts_receivable.py + ui/pages/27_Receivables.py; 1 test.',
+     'Build 2026.06.30-v'),
     ('feature', '-', 'Profitability', 'working', 'Route-level P&L',
      'Route and technician profitability: exact per-visit cost + evenly-allocated customer revenue per route, loss flags, unrouted-visit count. RouteRecord + RouteVisit tables; Skimmer sync applies routes. app/services/route_pnl.py + ui/pages/24_Route_PnL.py; 3 tests.',
      'Build 2026.06.30-j'),
@@ -393,6 +396,8 @@ DEFAULT_LOG_ENTRIES = [
     ('2026.06.30-n', 'shipped', 'Chemistry', 'LSI water-balance chemistry engine + dosing',
      'The core pool-specific differentiator. app/services/chemistry.py computes the Langelier Saturation Index (Taylor/APSP factor method expressed as continuous logs) from pH, temperature, calcium hardness, total alkalinity, TDS, and optional CYA correction; classifies corrosive/balanced/scaling; checks each parameter against ideal ranges; and recommends dosing (industry rates per 10,000 gal) to bring water into balance. New Chemistry page (26): load a property\'s latest reading or enter manually, see LSI + parameter status + dosing, and save the reading to the water-test log. 7 tests lock the math against balanced/corrosive/scaling worked cases (111 -> 118 passing).'),
     # ---- Build 2026.06.30-p : live FreshBooks revenue wiring ------------
+    ('2026.06.30-v', 'shipped', 'Receivables', 'A/R aging + collections list',
+     'New accounts_receivable() ages every outstanding FreshBooks invoice (excludes paid/auto-paid/deposit-paid) by days since issued into 0-30 (current) / 31-60 / 61-90 / 90+, rolled up by customer. New Receivables page (27): total/current/aged metrics, an aging table, and a sortable "who owes you" collections list with an aged-only filter. Freshly-issued recurring bills stay in the current bucket so they do not read as overdue. Real data: $105,187 outstanding but only $1,276 genuinely aged (a single 90+ day invoice) -- 99% current; autopay bills auto-collect out of A/R. 1 test.'),
     ('2026.06.30-u', 'shipped', 'Identity', 'Auto-attribute matching (zero orphaned revenue) + possible-duplicate review',
      'Changed the matching policy so nothing is ever orphaned: an ambiguous customer now gets its OWN account (so revenue attributes) but is flagged as a possible duplicate for optional review -- never a wrong merge, worst case a splittable duplicate. Added merge_account() (moves billing + properties + id maps to the target, removes the source). New "Possible duplicates -- review anytime" section on the Customer Matching page (22) with Keep separate / Merge actions -- THIS is where the flagged matches are reviewed/verified. Re-pulled real data: unattributed revenue $2.29M -> $0.00; all $10.27M attributed across 447 customers; 100 flagged for optional review; 0 blocking. YTD attributed $839k -> $959k. 3 tests.'),
     ('2026.06.30-t', 'shipped', 'Profitability', 'Revenue composition by invoice status (sortable, period-filtered)',
