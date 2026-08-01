@@ -8,7 +8,7 @@ sensitive so the framework vaults them encrypted (dormant on this file: 0 TAXIDs
 """
 from __future__ import annotations
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.connectors.base import BaseTranslator, ClassifyResult, InterpretResult
 from app.connectors.quickbooks.coa import _unquote
@@ -95,9 +95,20 @@ class VendorListTranslator(BaseTranslator):
             artifact_id=row.artifact_id, row_id=row.id,
         )
         if result.vendor_id:
-            session.add(ExternalIdentityMap(
-                source_slug='quickbooks', entity_type='vendor', external_id=external_id,
-                internal_type='vendor', internal_id=str(result.vendor_id), confidence=result.confidence,
-            ))
-            session.commit()
+            # Idempotent: re-ingesting the same vendor list must not pile up duplicate
+            # id-map rows (ExternalIdentityMap has no unique constraint). Guard the
+            # insert like skimmer_sync / front_desk do.
+            exists = session.exec(
+                select(ExternalIdentityMap).where(
+                    ExternalIdentityMap.source_slug == 'quickbooks',
+                    ExternalIdentityMap.entity_type == 'vendor',
+                    ExternalIdentityMap.external_id == external_id,
+                )
+            ).first()
+            if not exists:
+                session.add(ExternalIdentityMap(
+                    source_slug='quickbooks', entity_type='vendor', external_id=external_id,
+                    internal_type='vendor', internal_id=str(result.vendor_id), confidence=result.confidence,
+                ))
+                session.commit()
         return InterpretResult(status='interpreted')

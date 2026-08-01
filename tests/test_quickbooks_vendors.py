@@ -5,6 +5,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 import app.models  # noqa: F401
 from app.connectors.base import run_translation
 from app.connectors.quickbooks.vendors import VendorListTranslator
+from app.models.connector_tables import ExternalIdentityMap
 from app.models.translator_tables import RawSourceCell, RawSourceRow, SourceArtifact
 from app.models.vendor_tables import Vendor, VendorProfile
 
@@ -139,3 +140,16 @@ def test_every_row_terminal():
     s, art, raw, _ = _run()
     rows = s.exec(select(RawSourceRow).where(RawSourceRow.artifact_id == art.id)).all()
     assert all(r.status in {'interpreted', 'excluded', 'superseded', 'quarantined_parse'} for r in rows)
+
+
+def test_reingest_is_idempotent_no_duplicate_vendors_or_idmaps():
+    s, art, raw, _ = _run()
+    v1 = len(s.exec(select(Vendor)).all())
+    m1 = len(s.exec(select(ExternalIdentityMap).where(ExternalIdentityMap.entity_type == 'vendor')).all())
+    # Second ingest of the same bytes as a new artifact.
+    art2 = SourceArtifact(source_slug='quickbooks', artifact_type='report_vendor_list')
+    s.add(art2); s.commit(); s.refresh(art2)
+    run_translation(s, art2, raw, VendorListTranslator())
+    assert len(s.exec(select(Vendor)).all()) == v1                     # no duplicate vendors
+    assert len(s.exec(select(ExternalIdentityMap).where(
+        ExternalIdentityMap.entity_type == 'vendor')).all()) == m1     # no duplicate id-maps

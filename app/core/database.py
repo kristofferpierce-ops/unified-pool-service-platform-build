@@ -46,10 +46,18 @@ def _add_missing_columns() -> None:
                 continue
             have = {c['name'] for c in insp.get_columns(table_name)}
             for col in table.columns:
-                if col.name in have or not col.nullable:
+                if not col.nullable:
                     continue
-                coltype = col.type.compile(dialect=engine.dialect)
-                conn.execute(text(f'ALTER TABLE "{table_name}" ADD COLUMN "{col.name}" {coltype}'))
+                if col.name not in have:
+                    coltype = col.type.compile(dialect=engine.dialect)
+                    conn.execute(text(f'ALTER TABLE "{table_name}" ADD COLUMN "{col.name}" {coltype}'))
+                # Honor Field(index=True) on additive columns -- ALTER ADD COLUMN never
+                # creates the index, so create it here (idempotent, backfills on re-run).
+                if col.index:
+                    conn.execute(text(
+                        f'CREATE INDEX IF NOT EXISTS "ix_{table_name}_{col.name}" '
+                        f'ON "{table_name}" ("{col.name}")'
+                    ))
 
 
 def create_db_and_tables() -> None:

@@ -44,11 +44,9 @@ def norm_phone(value: str) -> str:
     return digits[-10:] if len(digits) > 10 else digits
 
 
-def norm_taxid(value: str) -> str:
-    return re.sub(r'\D', '', value or '')
-
-
 def hash_taxid(raw: str) -> str:
+    # Normalize with the SAME function the vault write uses (app/core/secrets.py)
+    # so a resolve-time hash matches the stored cell hash for any id, not just digits.
     n = norm_sensitive(raw)
     return keyed_hash(n) if n else ''
 
