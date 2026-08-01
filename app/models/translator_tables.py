@@ -138,6 +138,33 @@ class LedgerAccount(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class ExpenseActual(SQLModel, table=True):
+    """A cost fact at (account, period, basis) grain, landed from a QuickBooks
+    source. The auditable landing spot BEFORE anything is applied to the live
+    cost-of-business spine (ExpenseItem). ``amount_raw`` is the verbatim cell so
+    exact-Decimal tie-outs never depend on float storage.
+
+    ``role`` in: overhead | cogs | labor | depreciation.
+    ``provenance`` in: report_provisional | iif_authoritative  (IIF line detail
+        supersedes a report-provisional row for the same cell; see CostSourceElection).
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    account_id: Optional[int] = Field(default=None, index=True)
+    account_code: str = Field(default='', index=True)
+    account_name: str = Field(default='', index=True)
+    period: str = Field(default='', index=True)
+    basis: str = Field(default='accrual', index=True)
+    role: str = Field(default='overhead', index=True)
+    amount: float = 0.0                                # convenience/display
+    amount_raw: str = ''                              # verbatim; Decimal math parses this
+    provenance: str = Field(default='report_provisional', index=True)
+    is_superseded: bool = Field(default=False, index=True)
+    superseded_reason: str = ''
+    artifact_id: Optional[int] = Field(default=None, index=True)
+    source_row_id: Optional[int] = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class CostSourceElection(SQLModel, table=True):
     """Elects the single authoritative cost source for one (account, period, basis)
     cell (I5). Cost aggregation reads at most one non-superseded source per cell,

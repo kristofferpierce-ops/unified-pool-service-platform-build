@@ -6,7 +6,9 @@ excluded from cost aggregation to prevent double-counting.
 """
 from app.connectors.base import registry
 from app.connectors.quickbooks.coa import ChartOfAccountsTranslator
+from app.connectors.quickbooks.pnl import ProfitAndLossTranslator
 
 registry.register(ChartOfAccountsTranslator())
+registry.register(ProfitAndLossTranslator())
 
-__all__ = ['ChartOfAccountsTranslator']
+__all__ = ['ChartOfAccountsTranslator', 'ProfitAndLossTranslator']

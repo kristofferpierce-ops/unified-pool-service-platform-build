@@ -39,6 +39,17 @@ ACCNTTYPE_MAP: dict = {
     'NONPOSTING': ('NonPosting', ''),
 }
 
+def _unquote(value: str) -> str:
+    """Strip a matching pair of surrounding double-quotes and unescape doubled
+    quotes. QuickBooks IIF quotes fields that contain commas (e.g. the account
+    "Licenses, Permits,Other Taxes"); the CSV reports unquote them, so the chart
+    must too or the names won't match across sources."""
+    v = value.rstrip('\r').strip()
+    if len(v) >= 2 and v[0] == '"' and v[-1] == '"':
+        v = v[1:-1].replace('""', '"')
+    return v
+
+
 _DEPRECIATION_KW = ('depreciation', 'amortization', 'depr', 'amort')
 _LABOR_KW = ('payroll', 'wage', 'salary', 'labor', 'bonus', 'commission')
 _COST_TYPES = {'Expense', 'OtherExpense', 'CostOfGoodsSold'}
@@ -62,6 +73,39 @@ def propose_role(account_type: str, name: str) -> tuple[str, bool, bool]:
             return 'labor', True, False
         return ('cogs' if account_type == 'CostOfGoodsSold' else 'overhead'), False, False
     return 'excluded', False, False
+
+
+# Owner-confirmed role corrections (2026-08-01), applied on top of the keyword
+# proposal. Keyed by leaf account name. This is the human-confirmation step the
+# design requires before any Tier 1 cost applies; it will move into the review UI.
+CONFIRMED_ROLE_OVERRIDES: dict = {
+    # (account_role, is_labor_account, is_depreciation_account)
+    'Payroll Processing': ('overhead', False, False),   # a Paychex fee, not wages
+    'Ask My Accountant': ('excluded', False, False),     # suspense/holding account
+}
+
+
+def apply_confirmed_account_roles(session: Session, overrides: dict | None = None) -> int:
+    """Apply owner-confirmed role corrections to already-ingested LedgerAccounts.
+    Returns the number of accounts changed."""
+    from app.models.translator_tables import LedgerAccount as _LA  # local import avoids cycle
+    from sqlmodel import select as _select
+    overrides = CONFIRMED_ROLE_OVERRIDES if overrides is None else overrides
+    changed = 0
+    for acct in session.exec(_select(_LA)).all():
+        ov = overrides.get(acct.name)
+        if not ov:
+            continue
+        role, is_labor, is_dep = ov
+        if (acct.account_role, acct.is_labor_account, acct.is_depreciation_account) != (role, is_labor, is_dep):
+            acct.account_role = role
+            acct.is_labor_account = is_labor
+            acct.is_depreciation_account = is_dep
+            session.add(acct)
+            changed += 1
+    if changed:
+        session.commit()
+    return changed
 
 
 class ChartOfAccountsTranslator(BaseTranslator):
@@ -89,7 +133,7 @@ class ChartOfAccountsTranslator(BaseTranslator):
         return ClassifyResult(skip_interpret=True, reason=f'not_chart_of_accounts:{row.band or "unknown"}')
 
     def interpret(self, session: Session, row, cells) -> InterpretResult:
-        d = {c.header_name: c.raw_value.rstrip('\r').strip() for c in cells if c.header_name}
+        d = {c.header_name: _unquote(c.raw_value) for c in cells if c.header_name}
         name = d.get('NAME', '').strip()
         type_code = d.get('ACCNTTYPE', '').strip()
         if not name:
