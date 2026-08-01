@@ -42,6 +42,7 @@ DEFAULT_SOURCE_SYSTEMS = [
     ('skimmer', 'Skimmer', 'operations'),
     ('heritage', 'Heritage Pool Plus', 'vendor'),
     ('invoice_import', 'Invoice Import', 'document'),
+    ('quickbooks', 'QuickBooks Desktop', 'accounting'),
 ]
 
 DEFAULT_LABOR_SETTINGS = {

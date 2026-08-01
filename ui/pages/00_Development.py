@@ -20,7 +20,7 @@ configure_page('Development Tracker', icon='🧱')
 
 # Current build stamp (bump when a new batch of work ships). Modeled on Lumen's
 # DEV_VERSION: every changelog entry is tagged with the build it shipped in.
-DEV_BUILD = '2026.06.30-w'
+DEV_BUILD = '2026.06.30-x'
 
 # --------------------------------------------------------------------------
 # Vocabularies
@@ -396,6 +396,8 @@ DEFAULT_LOG_ENTRIES = [
     ('2026.06.30-n', 'shipped', 'Chemistry', 'LSI water-balance chemistry engine + dosing',
      'The core pool-specific differentiator. app/services/chemistry.py computes the Langelier Saturation Index (Taylor/APSP factor method expressed as continuous logs) from pH, temperature, calcium hardness, total alkalinity, TDS, and optional CYA correction; classifies corrosive/balanced/scaling; checks each parameter against ideal ranges; and recommends dosing (industry rates per 10,000 gal) to bring water into balance. New Chemistry page (26): load a property\'s latest reading or enter manually, see LSI + parameter status + dosing, and save the reading to the water-test log. 7 tests lock the math against balanced/corrosive/scaling worked cases (111 -> 118 passing).'),
     # ---- Build 2026.06.30-p : live FreshBooks revenue wiring ------------
+    ('2026.06.30-x', 'shipped', 'QuickBooks', 'Tier 0 foundation: no-loss translator substrate + framework',
+     'First build of the QuickBooks "universal translator" (design: docs/QUICKBOOKS_TRANSLATOR_DESIGN.md, hardened by a 30-finding adversarial pass in docs/QUICKBOOKS_TRANSLATOR_CRITIQUE.md). QuickBooks is the authoritative COST base (FreshBooks stays revenue source-of-truth; QB income is excluded to prevent double-count). New no-loss substrate app/models/translator_tables.py: SourceArtifact (file bytes + sha256 + basis/date_locale), RawSourceRow (verbatim line + byte offsets), RawSourceCell (positional, PII-vault fields) -- the file->row->cell grain the existing dict-grain raw layer lacked. Plus the accounting backbone: LedgerAccount (account_type + normal_balance + is_labor/is_depreciation flags = understand-by-TYPE) and CostSourceElection (account,period,basis = count-once). New app/connectors/base.py BaseTranslator + TranslatorRegistry + run_translation driver enforcing I1 (verbatim persisted before interpret) and I2 (per-row try/except; a parse exception quarantines the exact offending line instead of dropping it -- bans the skimmer_sync.py:226 drop-a-row pattern; hard post-condition that every row reaches a terminal status). Registered quickbooks source system. Design-only groundwork: no ingestion/apply yet. 10 tests (128 -> 138). Next: Chart-of-Accounts translator + gated apply + review UI; validate against the owner real export.'),
     ('2026.06.30-w', 'shipped', 'Dashboard', 'Real revenue + A/R + trend chart on the Dashboard',
      'The Dashboard now opens on the real business, not the empty operational shell. New "Business at a glance" band: Revenue YTD ($959k), Revenue all-time ($10.27M), Recurring YTD ($245k, the autopay base), Outstanding A/R ($105k with aged-31+ delta), and customer count -- all live from FreshBooks. Below it a monthly-billings bar chart (last 24 months) beside a top-8 customers-by-revenue table. New revenue_by_month() service groups invoices by issued year-month (period-aware); 2 tests (126 -> 128 passing). The band only shows once real revenue exists, so a fresh/empty install still opens clean.'),
     ('2026.06.30-v', 'shipped', 'Receivables', 'A/R aging + collections list',

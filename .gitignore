@@ -21,5 +21,9 @@ data/*.db
 *.db-wal
 data/freshbooks_oauth_tokens.json
 data/freshbooks_oauth_state.json
+data/imports/
+*.QBB
+*.QBW
+*.IIF
 ui/_KPS_TEMP_STREAMLIT_HOME_DO_NOT_COMMIT.py
 Launch API.bat
