@@ -23,6 +23,7 @@ class ChemicalProduct(SQLModel, table=True):
     manufacturer: str = ""
     manufacturer_part_number: str = Field(default="", index=True)
     default_vendor: str = ""
+    default_vendor_id: Optional[int] = Field(default=None, index=True)  # -> Vendor (Tier 2; additive, keeps string)
     aliases_csv: str = ""
     product_family: str = "chemical"
     is_active: bool = True
@@ -32,6 +33,7 @@ class ProductPriceHistory(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     product_id: int = Field(index=True)
     vendor_name: str = ""
+    vendor_id: Optional[int] = Field(default=None, index=True)  # -> Vendor (Tier 2; additive, keeps string)
     invoice_number: str = ""
     effective_date: date = Field(default_factory=date.today)
     unit_cost: float = 0.0
@@ -210,6 +212,7 @@ class CommercialVendorOrder(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     property_id: int = Field(index=True)
     vendor_name: str = Field(index=True)
+    vendor_id: Optional[int] = Field(default=None, index=True)  # -> Vendor (Tier 2; additive, keeps string)
     order_number: str = Field(index=True)
     ordered_at: datetime = Field(default_factory=datetime.utcnow)
     status: str = "ordered"

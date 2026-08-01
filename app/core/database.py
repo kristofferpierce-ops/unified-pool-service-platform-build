@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 
-from sqlalchemy import event
+from sqlalchemy import event, inspect, text
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.core.config import DATABASE_URL
@@ -31,8 +31,31 @@ if _is_sqlite:
         cursor.close()
 
 
+def _add_missing_columns() -> None:
+    """Lightweight additive migration: ALTER-add any NULLABLE model column missing
+    from an existing table. SQLModel's create_all makes missing TABLES but never
+    adds COLUMNS to a table that already exists, so adding a field to a shipped
+    model would otherwise break every query on that table with 'no such column'.
+    Only nullable columns are added (always safe as SQLite ADD COLUMN); anything
+    else is left for an explicit migration."""
+    insp = inspect(engine)
+    existing = set(insp.get_table_names())
+    with engine.begin() as conn:
+        for table_name, table in SQLModel.metadata.tables.items():
+            if table_name not in existing:
+                continue
+            have = {c['name'] for c in insp.get_columns(table_name)}
+            for col in table.columns:
+                if col.name in have or not col.nullable:
+                    continue
+                coltype = col.type.compile(dialect=engine.dialect)
+                conn.execute(text(f'ALTER TABLE "{table_name}" ADD COLUMN "{col.name}" {coltype}'))
+
+
 def create_db_and_tables() -> None:
     SQLModel.metadata.create_all(engine)
+    if _is_sqlite:
+        _add_missing_columns()
 
 
 @contextmanager

@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 
 from sqlmodel import Session
 
+from app.core.secrets import encrypt, keyed_hash, norm_sensitive
 from app.models.translator_tables import RawSourceCell, RawSourceRow, SourceArtifact
 
 
@@ -144,6 +145,14 @@ def run_translation(session: Session, artifact: SourceArtifact, raw_bytes: bytes
         session.flush()  # assign row.id
         cells: list = []
         for c in tok.cells:
+            cipher_value, value_hash = '', ''
+            if c.is_sensitive and c.raw_value:
+                # No-loss for PII: the plaintext is preserved ENCRYPTED at rest
+                # (never in raw_value / any query surface) plus a keyed hash for
+                # dedup. Before this, a sensitive cell was blanked and its value
+                # was silently lost -- a real no-loss violation.
+                cipher_value = encrypt(c.raw_value)
+                value_hash = keyed_hash(norm_sensitive(c.raw_value))
             cell = RawSourceCell(
                 raw_row_id=row.id,
                 artifact_id=artifact.id,
@@ -151,6 +160,8 @@ def run_translation(session: Session, artifact: SourceArtifact, raw_bytes: bytes
                 header_name=c.header_name,
                 raw_value='' if c.is_sensitive else c.raw_value,
                 is_sensitive=c.is_sensitive,
+                cipher_value=cipher_value,
+                value_hash=value_hash,
             )
             session.add(cell)
             cells.append(cell)

@@ -38,6 +38,7 @@ class AssetRecord(SQLModel, table=True):
 
     # Purchase provenance.
     vendor_name: str = ''
+    vendor_id: Optional[int] = Field(default=None, index=True)  # -> Vendor (Tier 2; additive, keeps string)
     invoice_number: str = ''
     purchase_cost: float = 0.0
 
