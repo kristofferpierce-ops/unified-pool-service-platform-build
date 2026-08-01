@@ -7,7 +7,9 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 import app.models  # noqa: F401
 from app.models.tables import ChemicalProduct, InvoiceDocument, ProductPriceHistory
-from app.services.invoice_import import ingest_parsed_invoices, parse_heritage_paste
+from datetime import date as _date
+from app.models.vendor_tables import Vendor
+from app.services.invoice_import import ingest_parsed_invoices, parse_ace_text, parse_heritage_paste
 from app.services.purchasing import best_source_for_product
 
 
@@ -138,6 +140,63 @@ def test_ft_unit_and_service_prefix():
                   '$235.95', '$0.00', '$17.70', '$253.65')
     l2 = parse_heritage_paste(paste2)[0].lines[0]
     assert l2.mfg_no == 'ASQ165' and 'US Motors' in l2.description
+
+
+# --- Strunks Ace Hardware PDFs (real extracted text: jumbled header + clean lines) ---
+
+_ACE_TEXT = '\n'.join([
+    'KEYS POOL SERVICE & DESIGN', '2711 SEIDENBERG AVE', 'NET 10TH',
+    '37.16', '0.00', '37.16', '6:02', '2.79', '6/17/26',
+    '305-731-4448 PO # SOUTHERNMOST INN', 'INVOICE:',
+    '** AMOUNT CHARGED TO STORE ACCOUNT ** 39.95', '981386', '39.95',
+    'QUANTITY UM ITEM DESCRIPTION SUGG PRICE /PER EXTENSION',
+    '1 EA 2199750 BIT DRILL 7/16" 1/4SHANK 10.69 /EA 10.69',
+    '1 EA 2251429 ADJUSTABLE WRENCH 6" 9.69 /EA 9.69',
+    '1 EA 4037389 PIPE THREAD SEAL 1/2X260 1.99 /EA 1.99',
+    '1 EA 23136 TAP CARDED 1/4X18NPT 14.79 /EA 14.79',
+])
+
+# Pool-salt line carries a SUGG retail (13.99) before the cost (10.493).
+_ACE_SALT = '\n'.join([
+    '** AMOUNT CHARGED TO STORE ACCOUNT ** 22.56', '981825', '6/22/26',
+    'QUANTITY UM ITEM DESCRIPTION SUGG PRICE /PER EXTENSION',
+    '2 EA 7225246 DC POOL SALT 40LB 13.99 10.493 /EA 20.99 C',
+])
+
+
+def test_ace_parses_lines_total_and_reconciles():
+    inv = parse_ace_text(_ACE_TEXT, '981386', _date(2026, 6, 17), po='SOUTHERNMOST INN')
+    assert inv.vendor_name == 'Strunks Ace Hardware'
+    assert inv.total == 39.95 and inv.subtotal == 37.16 and inv.tax == 2.79
+    assert inv.totals_ok is True and len(inv.lines) == 4
+    l0 = inv.lines[0]
+    assert l0.item_no == '2199750' and l0.mfg_no == '' and l0.qty == 1
+    assert l0.unit_price == 10.69 and l0.ext_price == 10.69 and l0.arithmetic_ok
+
+
+def test_ace_drops_sugg_price_keeps_cost():
+    inv = parse_ace_text(_ACE_SALT, '981825', _date(2026, 6, 22))
+    l = inv.lines[0]
+    assert l.item_no == '7225246'
+    assert l.description == 'DC POOL SALT 40LB'      # sugg 13.99 dropped from the name
+    assert l.unit_price == 10.493 and l.ext_price == 20.99   # cost, not the 13.99 retail
+    assert inv.total == 22.56
+
+
+def test_ace_ingests_keyed_on_item_number():
+    with _session() as s:
+        ingest_parsed_invoices(s, [parse_ace_text(_ACE_TEXT, '981386', _date(2026, 6, 17))])
+        drill = s.exec(select(ChemicalProduct).where(ChemicalProduct.sku == '2199750')).first()
+        assert drill is not None and drill.manufacturer_part_number == ''   # no MFG # -> item-keyed
+        assert s.exec(select(ProductPriceHistory).where(ProductPriceHistory.product_id == drill.id)).all()
+
+
+def test_mixed_vendor_ingest_resolves_each_vendor():
+    with _session() as s:
+        invoices = parse_heritage_paste(_PASTE) + [parse_ace_text(_ACE_TEXT, '981386', _date(2026, 6, 17))]
+        ingest_parsed_invoices(s, invoices)
+        names = {v.name for v in s.exec(select(Vendor)).all()}
+        assert 'Heritage Pool Supply' in names and 'Strunks Ace Hardware' in names
 
 
 def test_item_with_no_mfg_field_parses():

@@ -22,7 +22,9 @@ import hashlib
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from pathlib import Path
 
+from pypdf import PdfReader
 from sqlmodel import Session, select
 
 from app.models.tables import ChemicalProduct, InvoiceDocument, ProductPriceHistory
@@ -188,6 +190,67 @@ def parse_heritage_paste(text: str) -> list:
     return invoices
 
 
+# --- Strunks Ace Hardware: emailed PDFs (clean text layer, jumbled header) ------
+# Line: QTY UM ITEM DESCRIPTION [SUGG] COST /PER EXT [TAX]. The COST is the number
+# immediately before /PER (a sugg retail price may precede it and is dropped).
+# Ace gives NO manufacturer part number, so items key on the Ace item number.
+_ACE_LINE = re.compile(
+    r'^(\d+(?:\.\d+)?)\s+([A-Z]{2})\s+(\S+)\s+(.+?)\s+([\d.]+)\s*/(\w+)\s+([\d,.]+)\s*([A-Z]?)\s*$', re.M)
+_ACE_TOTAL = re.compile(r'AMOUNT CHARGED TO STORE ACCOUNT \*\*\s*([\d,.]+)')
+
+
+def _ace_clean_desc(d: str) -> str:
+    return re.sub(r'\s+\d+\.\d+$', '', d).strip()   # drop a trailing sugg retail price
+
+
+def _ace_ident(stem: str, text: str) -> tuple:
+    """Invoice # + date. Ace names the PDF YYYYMMDD_<invoice>; fall back to text."""
+    m = re.match(r'(\d{4})(\d{2})(\d{2})_(\d+)', stem)
+    if m:
+        return m.group(4), date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    dm = re.search(r'(\d{1,2})/(\d{1,2})/(\d{2})', text)
+    dt = date(2000 + int(dm.group(3)), int(dm.group(1)), int(dm.group(2))) if dm else None
+    inv = ''
+    tm = _ACE_TOTAL.search(text)
+    if tm:
+        im = re.search(r'\b(\d{5,7})\b', text[tm.end():])
+        inv = im.group(1) if im else ''
+    return inv, dt
+
+
+def parse_ace_text(text: str, invoice_no: str, invoice_date, po: str = '') -> 'ParsedInvoice':
+    lines = []
+    for m in _ACE_LINE.finditer(text):
+        qty = float(m.group(1))
+        uom = m.group(2)
+        item = m.group(3)
+        desc = _ace_clean_desc(m.group(4))
+        unit = float(m.group(5))
+        ext = float(m.group(7).replace(',', ''))
+        ok = abs(qty * unit - ext) <= 0.02 * max(1.0, abs(ext))
+        lines.append(ParsedLine(desc, item, '', qty, uom, unit, ext, ok))   # mfg_no '' -> keyed on item #
+    tm = _ACE_TOTAL.search(text)
+    total = float(tm.group(1).replace(',', '')) if tm else None
+    subtotal = round(sum(l.ext_price or 0 for l in lines), 2)
+    tax = round(total - subtotal, 2) if total is not None else None
+    totals_ok = tax is not None and -0.01 <= tax <= 0.09 * max(1.0, subtotal)   # implied tax must be sane
+    return ParsedInvoice(
+        invoice_no=invoice_no, vendor_name='Strunks Ace Hardware', invoice_date=invoice_date,
+        po=po, job=po, status='', is_credit=(total is not None and total < 0),
+        subtotal=subtotal, shipping=0.0, tax=tax, total=total, lines=lines,
+        totals_ok=totals_ok, raw_block=text.strip(),
+    )
+
+
+def parse_ace_pdf(file_path) -> 'ParsedInvoice':
+    """Parse one Strunks Ace Hardware invoice PDF (pypdf text layer)."""
+    path = Path(file_path)
+    text = '\n'.join((pg.extract_text() or '') for pg in PdfReader(str(path)).pages)
+    invoice_no, invoice_date = _ace_ident(path.stem, text)
+    pom = re.search(r'PO # (.+)', text)
+    return parse_ace_text(text, invoice_no, invoice_date, po=(pom.group(1).strip() if pom else ''))
+
+
 def _infer_family(description: str) -> str:
     d = description.lower()
     checks = [('pump', 'pump'), ('filter', 'filter'), ('grid', 'filter'), ('valve', 'valve'),
@@ -228,17 +291,25 @@ def resolve_product_by_mfg(session: Session, *, mfg_no: str, item_no: str, descr
     return product, True
 
 
-def ingest_parsed_invoices(session: Session, invoices: list, source_slug: str = 'heritage') -> dict:
+def ingest_parsed_invoices(session: Session, invoices: list, source_slug: str = 'invoice') -> dict:
     """Load parsed invoices into the vendor + product + price ledger. Idempotent
-    per (vendor, invoice #). Credit memos are recorded but not priced."""
-    vres = resolve_vendor(session, source=source_slug, external_id='heritage-pool-supply',
-                          name='Heritage Pool Supply', vendor_type='distributor')
-    vendor_id = vres.vendor_id
+    per (vendor, invoice #). Credit memos are recorded but not priced. Vendor is
+    resolved per invoice from ``inv.vendor_name`` (Tier 2 spine), so a single call
+    can mix vendors."""
+    vendor_cache: dict = {}
+
+    def _vendor_id(name: str) -> int | None:
+        if name not in vendor_cache:
+            vendor_cache[name] = resolve_vendor(
+                session, source=source_slug, external_id=name.lower().replace(' ', '-'),
+                name=name, vendor_type='distributor').vendor_id
+        return vendor_cache[name]
 
     summary = {'invoices_imported': 0, 'invoices_skipped_dup': 0, 'credit_memos': 0,
                'lines_priced': 0, 'lines_excluded_credit': 0, 'products_created': 0, 'products_matched': 0}
 
     for inv in invoices:
+        vendor_id = _vendor_id(inv.vendor_name)
         existing = session.exec(
             select(InvoiceDocument).where(
                 InvoiceDocument.vendor_name == inv.vendor_name,
