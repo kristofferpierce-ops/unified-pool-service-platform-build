@@ -9,8 +9,11 @@ from app.connectors.base import run_translation
 from app.connectors.quickbooks.coa import apply_confirmed_account_roles
 from app.connectors.quickbooks.pnl import ProfitAndLossTranslator
 from app.connectors.quickbooks.csv_report import parse_money
+from app.models.connector_tables import ApplyEvent
+from app.models.tables import ExpenseItem
 from app.models.translator_tables import ExpenseActual, LedgerAccount, RawSourceRow, SourceArtifact
-from app.services.quickbooks_costing import overhead_cost_preview, reconcile_pnl
+from app.services.cost_of_business import compute_cost_of_business
+from app.services.quickbooks_costing import apply_quickbooks_costing, overhead_cost_preview, reconcile_pnl
 
 # leaf name -> (account_type, normal_balance, account_role, is_labor, is_dep)
 _SEED = [
@@ -125,6 +128,44 @@ def test_byte_roundtrip_and_all_rows_terminal():
     for r in rows:
         assert raw[r.byte_offset_start:r.byte_offset_end].decode('cp1252') == r.raw_line_text
     assert all(r.status in {'interpreted', 'excluded', 'superseded', 'quarantined_parse'} for r in rows)
+
+
+def test_apply_replaces_overhead_spine_and_sets_cost_per_hour():
+    s = _session_with_chart()
+    art, raw, _ = _run(s, _PNL)
+    before = compute_cost_of_business(s).true_cost_per_hour
+
+    result = apply_quickbooks_costing(s, artifact_id=art.id, billable_hours_per_year=12000,
+                                      number_of_techs=5, period_label='FY2025')
+
+    # overhead spine replaced with QB overhead+depreciation only (Rent, Payroll
+    # Processing, Depreciation, Licenses = 4); labor + cogs excluded from it.
+    items = s.exec(select(ExpenseItem)).all()
+    assert len(items) == 4
+    assert result.overhead_items_written == 4
+    assert all(i.category == 'QuickBooks FY2025' for i in items)
+
+    # cost/hr = labor/hr (400000/12000) + overhead/hr (161000/12000)
+    assert round(result.labor_per_hour, 2) == round(400000 / 12000, 2)
+    assert round(result.after_true_cost_per_hour, 2) == round((400000 + 161000) / 12000, 2)
+    assert result.after_true_cost_per_hour != before
+
+    # engine now returns the applied number
+    assert round(compute_cost_of_business(s).true_cost_per_hour, 2) == round(561000 / 12000, 2)
+
+    # audit event recorded
+    ev = s.get(ApplyEvent, result.apply_event_id)
+    assert ev is not None and ev.target_type == 'cost_of_business' and ev.outcome == 'applied'
+
+
+def test_apply_is_idempotent():
+    s = _session_with_chart()
+    art, raw, _ = _run(s, _PNL)
+    apply_quickbooks_costing(s, artifact_id=art.id, billable_hours_per_year=12000, number_of_techs=5, period_label='FY2025')
+    first = s.exec(select(ExpenseItem)).all()
+    apply_quickbooks_costing(s, artifact_id=art.id, billable_hours_per_year=12000, number_of_techs=5, period_label='FY2025')
+    second = s.exec(select(ExpenseItem)).all()
+    assert len(first) == len(second) == 4   # re-apply does not duplicate the spine
 
 
 def test_unknown_account_quarantined_not_dropped():
