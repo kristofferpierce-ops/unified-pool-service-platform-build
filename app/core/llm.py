@@ -47,9 +47,16 @@ def _client():
 
 
 def _json_from_text(text: str) -> dict:
-    m = re.search(r'```(?:json)?\s*(\{.*\})\s*```', text, re.S)
-    blob = m.group(1) if m else text[text.find('{'): text.rfind('}') + 1]
-    return json.loads(blob)
+    """Extract the first JSON object from an LLM reply. Tolerates a ```json fence
+    and any trailing prose after the object (raw_decode stops at the object's end,
+    so a model that appends an explanation no longer causes an 'Extra data' error)."""
+    fence = re.search(r'```(?:json)?\s*(.+?)```', text, re.S)
+    body = fence.group(1) if fence else text
+    start = body.find('{')
+    if start < 0:
+        raise ValueError('no JSON object in LLM response')
+    obj, _ = json.JSONDecoder().raw_decode(body[start:])
+    return obj
 
 
 def complete_json(system: str, user_text: str, pdf_bytes: bytes | None = None,
