@@ -20,7 +20,7 @@ configure_page('Development Tracker', icon='🧱')
 
 # Current build stamp (bump when a new batch of work ships). Modeled on Lumen's
 # DEV_VERSION: every changelog entry is tagged with the build it shipped in.
-DEV_BUILD = '2026.08.01-f'
+DEV_BUILD = '2026.08.01-g'
 
 # --------------------------------------------------------------------------
 # Vocabularies
@@ -396,6 +396,8 @@ DEFAULT_LOG_ENTRIES = [
     ('2026.06.30-n', 'shipped', 'Chemistry', 'LSI water-balance chemistry engine + dosing',
      'The core pool-specific differentiator. app/services/chemistry.py computes the Langelier Saturation Index (Taylor/APSP factor method expressed as continuous logs) from pH, temperature, calcium hardness, total alkalinity, TDS, and optional CYA correction; classifies corrosive/balanced/scaling; checks each parameter against ideal ranges; and recommends dosing (industry rates per 10,000 gal) to bring water into balance. New Chemistry page (26): load a property\'s latest reading or enter manually, see LSI + parameter status + dosing, and save the reading to the water-test log. 7 tests lock the math against balanced/corrosive/scaling worked cases (111 -> 118 passing).'),
     # ---- Build 2026.06.30-p : live FreshBooks revenue wiring ------------
+    ('2026.08.01-g', 'shipped', 'Purchasing', 'LLM invoice extractor: read ANY vendor PDF into the price ledger',
+     'app/core/llm.py (provider-agnostic Claude client; reads ANTHROPIC_API_KEY from .env, isolated per project; Sonnet default; sends the PDF natively so jumbled text extraction is a non-issue). app/services/invoice_llm.py: extract_invoice_pdf classifies invoice-vs-noise and extracts vendor/invoice#/date/lines (part #, qty, cost-not-retail) as a ParsedInvoice; ingest_invoice_pdfs batches a folder -- dedups identical files, skips non-invoices, and an ARITHMETIC self-check gates ingestion (only invoices whose lines + totals reconcile are ingested; the rest are flagged, never trusted). This is the general path behind the deterministic Heritage/Ace parsers -- handles Team Horner, Heritage-as-PDF, Home Depot, etc. Validated live on a real Heritage PDF (vendor/invoice/part FC-9910/cost $14.99 extracted; a Safety Manual correctly classified not-invoice). Gmail poller pulled 421 vendor PDFs; batch-ingesting them next. Added anthropic dep.'),
     ('2026.08.01-f', 'shipped', 'Purchasing', 'Read-only Gmail invoice poller (OAuth desktop, gmail.readonly)',
      'Automated mailbox -> drop-zone pipeline for accounting@ / service@ (Google Workspace). authorize_gmail.py: one-time per-mailbox OAuth (org blocks service-account keys, so this uses a Desktop-app OAuth client + refresh tokens saved in .secrets/, gitignored) -- read-only scope gmail.readonly, so it physically cannot send/move/delete. app/services/gmail_poller.py walks every label, pulls PDF attachments (query has:attachment filename:pdf) into data/imports/invoices/, idempotent by message-id+filename; the invoice importer then dedups by (vendor, invoice #). Added google-api-python-client/google-auth-oauthlib deps. Owner runs authorize_gmail.py once (interactive browser sign-in per mailbox); then poll_all() pulls invoices. Next: run the authorize + first poll, auto-route pulled PDFs (Ace parser + the LLM extractor for other layouts using the platform ANTHROPIC_API_KEY), and Key West Chemical pack-size normalization.'),
     ('2026.08.01-e', 'shipped', 'Purchasing', 'Cross-vendor ledger search (item / part # / invoice #)',
