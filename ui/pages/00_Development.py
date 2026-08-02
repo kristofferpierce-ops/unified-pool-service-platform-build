@@ -20,7 +20,7 @@ configure_page('Development Tracker', icon='🧱')
 
 # Current build stamp (bump when a new batch of work ships). Modeled on Lumen's
 # DEV_VERSION: every changelog entry is tagged with the build it shipped in.
-DEV_BUILD = '2026.08.01-e'
+DEV_BUILD = '2026.08.01-f'
 
 # --------------------------------------------------------------------------
 # Vocabularies
@@ -396,6 +396,8 @@ DEFAULT_LOG_ENTRIES = [
     ('2026.06.30-n', 'shipped', 'Chemistry', 'LSI water-balance chemistry engine + dosing',
      'The core pool-specific differentiator. app/services/chemistry.py computes the Langelier Saturation Index (Taylor/APSP factor method expressed as continuous logs) from pH, temperature, calcium hardness, total alkalinity, TDS, and optional CYA correction; classifies corrosive/balanced/scaling; checks each parameter against ideal ranges; and recommends dosing (industry rates per 10,000 gal) to bring water into balance. New Chemistry page (26): load a property\'s latest reading or enter manually, see LSI + parameter status + dosing, and save the reading to the water-test log. 7 tests lock the math against balanced/corrosive/scaling worked cases (111 -> 118 passing).'),
     # ---- Build 2026.06.30-p : live FreshBooks revenue wiring ------------
+    ('2026.08.01-f', 'shipped', 'Purchasing', 'Read-only Gmail invoice poller (OAuth desktop, gmail.readonly)',
+     'Automated mailbox -> drop-zone pipeline for accounting@ / service@ (Google Workspace). authorize_gmail.py: one-time per-mailbox OAuth (org blocks service-account keys, so this uses a Desktop-app OAuth client + refresh tokens saved in .secrets/, gitignored) -- read-only scope gmail.readonly, so it physically cannot send/move/delete. app/services/gmail_poller.py walks every label, pulls PDF attachments (query has:attachment filename:pdf) into data/imports/invoices/, idempotent by message-id+filename; the invoice importer then dedups by (vendor, invoice #). Added google-api-python-client/google-auth-oauthlib deps. Owner runs authorize_gmail.py once (interactive browser sign-in per mailbox); then poll_all() pulls invoices. Next: run the authorize + first poll, auto-route pulled PDFs (Ace parser + the LLM extractor for other layouts using the platform ANTHROPIC_API_KEY), and Key West Chemical pack-size normalization.'),
     ('2026.08.01-e', 'shipped', 'Purchasing', 'Cross-vendor ledger search (item / part # / invoice #)',
      'app/services/ledger_search.py + a new Ledger Search page (28): search a product name, manufacturer part number, or invoice number and see it across EVERY vendor -- price, vendor, date, and invoice in one view (the owner "search an item or invoice number across all vendors" ask). Product hits show every price point chronologically + the cheapest vendor and % spread when 2+ vendors carry it; invoice hits show the invoice lines. Read-only over ProductPriceHistory + InvoiceDocument, no external service. Validated on the live ledger: "022056" -> the Pentair pump, "FloPro" -> 3 Jandy products, "pool salt" -> the Ace item, an invoice # -> its lines. 5 tests (187 -> 192). Linked from the Dashboard launchpad. Next: Key West Chemical (chemicals; pack-size $/unit normalization; LLM path once the Anthropic key is in the platform .env).'),
     ('2026.08.01-d', 'shipped', 'Purchasing', 'Second invoice adapter (Strunks Ace PDF) + multi-vendor loader',
