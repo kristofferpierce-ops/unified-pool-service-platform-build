@@ -20,7 +20,7 @@ configure_page('Development Tracker', icon='🧱')
 
 # Current build stamp (bump when a new batch of work ships). Modeled on Lumen's
 # DEV_VERSION: every changelog entry is tagged with the build it shipped in.
-DEV_BUILD = '2026.08.01-g'
+DEV_BUILD = '2026.08.01-h'
 
 # --------------------------------------------------------------------------
 # Vocabularies
@@ -396,6 +396,8 @@ DEFAULT_LOG_ENTRIES = [
     ('2026.06.30-n', 'shipped', 'Chemistry', 'LSI water-balance chemistry engine + dosing',
      'The core pool-specific differentiator. app/services/chemistry.py computes the Langelier Saturation Index (Taylor/APSP factor method expressed as continuous logs) from pH, temperature, calcium hardness, total alkalinity, TDS, and optional CYA correction; classifies corrosive/balanced/scaling; checks each parameter against ideal ranges; and recommends dosing (industry rates per 10,000 gal) to bring water into balance. New Chemistry page (26): load a property\'s latest reading or enter manually, see LSI + parameter status + dosing, and save the reading to the water-test log. 7 tests lock the math against balanced/corrosive/scaling worked cases (111 -> 118 passing).'),
     # ---- Build 2026.06.30-p : live FreshBooks revenue wiring ------------
+    ('2026.08.01-h', 'shipped', 'Purchasing', 'Hands-off invoice sync: daily scheduled poll -> extract -> ledger',
+     'run_invoice_sync.py is the scheduled entrypoint: polls both mailboxes (read-only, query recent PDFs minus known noise senders flhealth/freshbooks/stripe/own-domain), LLM-extracts new attachments, and ingests reconciled invoices into the price ledger. Idempotent -- the poller skips already-downloaded attachments and the importer dedups by (vendor, invoice #), so each run only does real work on invoices that arrived since last time. Logs to data/logs/invoice_sync.log. Wired to a Windows scheduled task "PoolInvoiceSync" (Sync Invoices.bat, daily 7 AM) -- runs on saved OAuth refresh tokens, no interactive login. First live run caught 9 new PDFs a prior vendor-targeted pull had missed (incl a new vendor, Swimline). The full loop (Gmail -> LLM -> reconcile-gate -> ledger -> best-source/search) is now self-sustaining. Next: Key West Chemical pack-size normalization; mop up the ~15 flagged/errored PDFs.'),
     ('2026.08.01-g', 'shipped', 'Purchasing', 'LLM invoice extractor: read ANY vendor PDF into the price ledger',
      'app/core/llm.py (provider-agnostic Claude client; reads ANTHROPIC_API_KEY from .env, isolated per project; Sonnet default; sends the PDF natively so jumbled text extraction is a non-issue). app/services/invoice_llm.py: extract_invoice_pdf classifies invoice-vs-noise and extracts vendor/invoice#/date/lines (part #, qty, cost-not-retail) as a ParsedInvoice; ingest_invoice_pdfs batches a folder -- dedups identical files, skips non-invoices, and an ARITHMETIC self-check gates ingestion (only invoices whose lines + totals reconcile are ingested; the rest are flagged, never trusted). This is the general path behind the deterministic Heritage/Ace parsers -- handles Team Horner, Heritage-as-PDF, Home Depot, etc. Validated live on a real Heritage PDF (vendor/invoice/part FC-9910/cost $14.99 extracted; a Safety Manual correctly classified not-invoice). Gmail poller pulled 421 vendor PDFs; batch-ingesting them next. Added anthropic dep.'),
     ('2026.08.01-f', 'shipped', 'Purchasing', 'Read-only Gmail invoice poller (OAuth desktop, gmail.readonly)',

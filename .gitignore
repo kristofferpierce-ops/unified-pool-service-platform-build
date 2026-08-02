@@ -27,3 +27,6 @@ data/imports/
 *.IIF
 ui/_KPS_TEMP_STREAMLIT_HOME_DO_NOT_COMMIT.py
 Launch API.bat
+.secrets/
+data/logs/
+Sync Invoices.bat
