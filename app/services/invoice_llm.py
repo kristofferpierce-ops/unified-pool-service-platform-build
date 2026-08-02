@@ -21,7 +21,10 @@ _SYSTEM = (
     "You extract structured data from a vendor PURCHASE invoice PDF (a bill the reader RECEIVED "
     "from a supplier). Return ONLY minified JSON with keys: is_invoice (bool), vendor_name, "
     "invoice_no, invoice_date (YYYY-MM-DD), currency, lines (array of {description, part_no, sku, "
-    "qty, uom, unit_cost, ext_price}), subtotal, tax, total. unit_cost is the price PAID per unit "
+    "qty, uom, unit_cost, ext_price}), subtotal, tax, total. vendor_name MUST be the SUPPLIER's "
+    "real company name as printed (e.g. 'Heritage Pool Supply', 'Team Horner', 'Strunks Ace "
+    "Hardware') -- never an internal account/branch/customer code or short label like 'Hx-Miami-38'. "
+    "unit_cost is the price PAID per unit "
     "(the net/cost price, NOT the retail/list/suggested price). Keep manufacturer part numbers in "
     "part_no. If the document is NOT a purchase invoice (a monthly statement summary, a safety "
     "manual, a submittal, an inspection report, a receipt for the reader's OWN software/subscription, "
@@ -139,7 +142,14 @@ def ingest_invoice_pdfs(session: Session, paths: list, model: str | None = None,
             if log:
                 log(f'  FLAG (no reconcile) {inv.vendor_name} {inv.invoice_no} {Path(p).name[:30]}')
             continue
-        r = ingest_parsed_invoices(session, [inv], source_slug='invoice')
+        try:
+            r = ingest_parsed_invoices(session, [inv], source_slug='invoice')
+        except Exception as exc:  # noqa: BLE001 - a DB error on one invoice must not kill the batch
+            session.rollback()
+            stats['errors'] += 1
+            if log:
+                log(f'  INGEST ERROR {inv.vendor_name} {inv.invoice_no}: {type(exc).__name__}: {exc}')
+            continue
         stats['ingested'] += 1
         stats['lines_priced'] += r['lines_priced']
         if log and (i % 25 == 0):

@@ -9,7 +9,9 @@ import app.models  # noqa: F401
 from app.models.tables import ChemicalProduct, InvoiceDocument, ProductPriceHistory
 from datetime import date as _date
 from app.models.vendor_tables import Vendor
-from app.services.invoice_import import ingest_parsed_invoices, parse_ace_text, parse_heritage_paste
+from app.services.invoice_import import (
+    ingest_parsed_invoices, parse_ace_text, parse_heritage_paste, resolve_product_by_mfg,
+)
 from app.services.purchasing import best_source_for_product
 
 
@@ -197,6 +199,22 @@ def test_mixed_vendor_ingest_resolves_each_vendor():
         ingest_parsed_invoices(s, invoices)
         names = {v.name for v in s.exec(select(Vendor)).all()}
         assert 'Heritage Pool Supply' in names and 'Strunks Ace Hardware' in names
+
+
+def test_resolve_product_matches_code_against_either_field():
+    # A source that puts the ITEM # in the mfg field (an LLM does this) must still
+    # match the existing product, not create a same-sku duplicate (the batch crash).
+    with _session() as s:
+        s.add(ChemicalProduct(sku='JNDJRT3000R', name='Jandy Heater', unit='EA',
+                              manufacturer_part_number='JRT3000R'))
+        s.commit()
+        prod, created = resolve_product_by_mfg(s, mfg_no='JNDJRT3000R', item_no='',
+                                               description='Jandy Heater', uom='EA')
+        assert created is False and prod.sku == 'JNDJRT3000R'
+        assert len(s.exec(select(ChemicalProduct)).all()) == 1
+        # a genuinely new code creates a product with a unique sku
+        _, c2 = resolve_product_by_mfg(s, mfg_no='NEWPART', item_no='', description='New', uom='EA')
+        assert c2 is True and len(s.exec(select(ChemicalProduct)).all()) == 2
 
 
 def test_item_with_no_mfg_field_parses():

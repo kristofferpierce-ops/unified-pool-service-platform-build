@@ -265,24 +265,33 @@ def _infer_family(description: str) -> str:
     return 'equipment'
 
 
-def resolve_product_by_mfg(session: Session, *, mfg_no: str, item_no: str, description: str, uom: str):
-    """Find or create the canonical product, keyed on manufacturer part number
-    (falling back to the distributor SKU when MFG # is absent)."""
-    product = None
-    if mfg_no:
-        product = session.exec(
-            select(ChemicalProduct).where(ChemicalProduct.manufacturer_part_number == mfg_no)
-        ).first()
-    if not product and item_no:
-        product = session.exec(select(ChemicalProduct).where(ChemicalProduct.sku == item_no)).first()
-    if product:
-        return product, False
+def resolve_product_by_mfg(session: Session, *, mfg_no: str, item_no: str, description: str, uom: str,
+                           vendor_name: str = ''):
+    """Find or create the canonical product. Different sources disagree on which
+    code is the MFG # vs the distributor SKU (an LLM may put the item # in either
+    field), so match EACH provided code against BOTH the manufacturer_part_number
+    AND the sku -- this maximizes dedup and avoids creating a same-sku duplicate."""
+    for key in [k for k in (mfg_no, item_no) if k]:
+        product = (
+            session.exec(select(ChemicalProduct).where(ChemicalProduct.manufacturer_part_number == key)).first()
+            or session.exec(select(ChemicalProduct).where(ChemicalProduct.sku == key)).first()
+        )
+        if product:
+            return product, False
+
+    # New product: guarantee a unique sku (if the natural key is taken, it should
+    # have matched above; disambiguate rather than crash on the UNIQUE constraint).
+    base = (item_no or mfg_no or description[:40] or 'unknown').strip() or 'unknown'
+    sku, n = base, 1
+    while session.exec(select(ChemicalProduct).where(ChemicalProduct.sku == sku)).first():
+        n += 1
+        sku = f'{base}-{n}'
     product = ChemicalProduct(
-        sku=item_no or mfg_no or (description[:40] or 'unknown'),
+        sku=sku,
         name=description[:200] or (mfg_no or item_no),
         unit=(uom or 'EA'),
         manufacturer_part_number=mfg_no,
-        default_vendor='Heritage Pool Supply',
+        default_vendor=vendor_name or 'Heritage Pool Supply',
         product_family=_infer_family(description),
     )
     session.add(product)
@@ -338,7 +347,8 @@ def ingest_parsed_invoices(session: Session, invoices: list, source_slug: str = 
 
         for ln in inv.lines:
             product, created = resolve_product_by_mfg(
-                session, mfg_no=ln.mfg_no, item_no=ln.item_no, description=ln.description, uom=ln.uom)
+                session, mfg_no=ln.mfg_no, item_no=ln.item_no, description=ln.description, uom=ln.uom,
+                vendor_name=inv.vendor_name)
             summary['products_created' if created else 'products_matched'] += 1
 
             # Record but do not price credit memos / negatives / zero-cost lines.
